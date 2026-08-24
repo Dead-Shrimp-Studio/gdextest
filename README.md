@@ -7,6 +7,10 @@ can exercise both pure logic and live engine APIs (singletons, your own register
 `Variant`/`String` round-trips, …), and are CI-friendly via JSON output and test
 filtering/sharding.
 
+> **Status:** the framework core, runner, reference fixture, headless execution, and the
+> reusable consumer [`SConscript`](SConscript) are working (15 self + reference tests green
+> on Godot 4.5). Roadmap: [`.plans/gdextension-testing-framework.md`](.plans/gdextension-testing-framework.md).
+
 ---
 
 ## Quickstart (this repo)
@@ -114,15 +118,16 @@ build**, and drive them through a tiny per-extension adapter.
    finishes — quitting earlier races the scan thread (see
    [`docs/testing/notes.md`](docs/testing/notes.md) §5).
 
-6. **Build with `tests=true`** — your `SConstruct`/`SConscript` compiles the framework core,
-   the entry, your adapter, and your suites into a separately-named shared object
-   (`libgdxtest...so`), so release builds stay clean.
+6. **Build with `tests=true`** — call the framework's reusable [`SConscript`](SConscript)
+   from your `SConstruct`; it compiles the framework core, your entry, your adapter, and
+   your suites into a separately-named shared object (`libgdxtest...so`), so release builds
+   stay clean.
 
 7. **Run in CI**: `godot --headless --editor --path <fixture> -- --gdxtest-run
    --gdxtest-json=results.json` and map the exit code to your pipeline.
 
-> Packaging this integration into a drop-in `SConscript`/scaffold is the next milestone —
-> until then, this repo is the reference consumer: copy its wiring.
+> The `SConscript` wiring is done; the fixture project is still copy-the-template — this
+> repo's `testdata/project/` is the reference.
 
 ## How it works
 

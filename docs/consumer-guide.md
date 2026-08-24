@@ -191,20 +191,36 @@ func _exit_tree() -> void:
 
 ## 6. Build
 
-The test target compiles the framework core, your entry, your adapter, and your suites
-into a separately-named shared object with `GDX_TESTS_ENABLED` defined. This repo's
-[`SConstruct`](../SConstruct) is the reference (`scons tests=true`). Requirements:
+Call the framework's reusable [`SConscript`](../SConscript) **after** your godot-cpp
+`SConscript` (the env must already carry godot-cpp's include paths and `LIBS`). It compiles
+ the framework core, your entry, your adapter, and your suites into a separately-named
+shared object with `GDX_TESTS_ENABLED` defined, and handles all the fiddly bits: framework
+include paths, `-fexceptions` (godot-cpp defaults to `-fno-exceptions`), the `.so` suffix,
+and an env `Clone` so your real extension build stays untouched:
 
-- Define `GDX_TESTS_ENABLED` only for the test target; leave release builds clean.
-- Add the framework's include dirs (`src/framework`'s parent) to `CPPPATH` so
-  `#include "framework/assert.h"` resolves.
-- Append `-fexceptions` to `CXXFLAGS` **after** your godot-cpp `SConscript` call —
-  godot-cpp defaults to `-fno-exceptions`, and the framework's abort/catch mechanism needs
-  exceptions in the TUs it compiles.
-- Append `env['SHLIBSUFFIX']` to the target name explicitly: SCons treats a trailing
-  `.x86_64` as a file extension and otherwise omits the `.so` (matches the godot-cpp
-  convention `libgdexample.linux.editor.x86_64.so`).
-- Optional flags this repo's build supports: `sanitize=true` (ASan/UBSan), `coverage=true`.
+```python
+# your SConstruct, after wiring godot-cpp into `env`:
+lib = env.SConscript(
+    "extern/gdextest/SConscript",
+    variant_dir="build/gdextest", duplicate=0,   # keep objects out of the submodule
+    exports={"env": env, "gdxtest": {
+        "enabled":  env.get("tests", False),    # or omit -> `scons tests=true`
+        "entry":    "testsupport/entry.cpp",    # required
+        "adapter":  "testsupport/adapter.cpp",  # required
+        "suites":   Glob("tests/*.cpp"),
+        "out_dir":  "bin",
+        "out_name": "libgdextest",
+    }},
+)
+if lib:
+    Default(lib)
+```
+
+This produces `bin/libgdextest.linux.template_debug.x86_64.so` (the platform suffix comes
+from `env["suffix"]`, which godot-cpp sets). Paths in `gdxtest` resolve against your
+project root. Optional extras your env can carry: `sanitize=true` (ASan/UBSan) and
+`coverage=true` flags are applied to `env` before the call and inherited by the test target
+(this repo's `SConstruct` is the working example).
 
 ## 7. Run and wire into CI
 

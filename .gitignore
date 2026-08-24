@@ -23,6 +23,7 @@
 .vscode/.roaming
 
 .plans
+build/
 
 # fixture project caches + results
 testdata/project/.godot/

@@ -21,9 +21,10 @@ wants.
 ## Status
 
 Working and verified on Godot **4.5** (Linux x86_64): framework core, sync runner, human +
-JSON reporting, filtering/sharding/shuffling, the reference fixture, and headless execution
-(15 self + reference tests green, exit 0). Not yet built: async/multi-frame tests, object
-leak/UAF tracking (stubs only), and drop-in consumer packaging. See
+JSON reporting, filtering/sharding/shuffling, the reference fixture, headless execution
+(15 self + reference tests green, exit 0), and the reusable consumer `SConscript` wiring
+(this repo's `SConstruct` is the reference consumer of it). Not yet built: async/multi-frame
+tests and object leak/UAF tracking (stubs only). See
 [.plans/gdextension-testing-framework.md](../.plans/gdextension-testing-framework.md) for
 the milestone plan.
 
