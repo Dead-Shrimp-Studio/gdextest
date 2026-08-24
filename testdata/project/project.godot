@@ -1,0 +1,19 @@
+; Engine configuration file for the gdextest fixture project.
+; This project exists only to give the headless Godot binary something to load
+; the test extension into (plan §2). The extension registers an EditorPlugin
+; whose _ready() runs the suites and quits with pass/fail (docs/testing/notes.md §3.3).
+
+config_version=5
+
+[application]
+
+config/name="gdextest fixture"
+config/features=PackedStringArray("4.5")
+
+[native_extensions]
+
+paths=["res://libgdxtest.gdextension"]
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/gdxtest/plugin.cfg")
