@@ -54,6 +54,7 @@ lib = env.SConscript(
             "tests/framework_self_tests.cpp",
             "tests/string_utils_tests.cpp",
             "tests/counter_state_tests.cpp",
+            "tests/engine_integration_tests.cpp",
         ],
         "out_name": "libgdx-test",
     }},

@@ -30,8 +30,8 @@ scons platform=linux target=template_debug tests=true      # -> bin/libgdx-test.
 godot --headless --editor --path testdata/project -- --gdxtest-run
 ```
 
-You'll see a summary like `== gdextest: 15 passed, 0 failed ==` and the shell exit code
-tells you the result: **0** = all passed, **1** = at least one failure.
+You'll see a summary like `== gdextest: 18 passed, 0 failed ==` and the shell exit code
+tells you the result: **0** = all passed, **1** = ≥1 failure, **2** = usage error.
 
 ## Writing tests
 
@@ -67,8 +67,38 @@ failing check:
 | `GDX_FAIL(msg)`, `GDX_ABORT_TEST(msg)` | unconditional failure / abort the test |
 
 `GDX_TEST_T(suite, name, tags)` registers with tags (`TAG_UNIT`, `TAG_INTEGRATION`,
-`TAG_SLOW`, `TAG_FLAKY`, … — see `src/framework/config.h`). This repo's reference suites
-live in [`tests/`](tests/).
+`TAG_SLOW`, `TAG_FLAKY`, … — see `src/framework/config.h`). Tag names resolve bare, so write
+`GDX_TEST_T(engine, spins_up, TAG_INTEGRATION)` exactly as shown. This repo's reference
+suites live in [`tests/`](tests/).
+
+### Live-engine tests
+
+Pure-logic tests never touch the engine and need nothing else. To exercise the live Godot
+engine (singletons, creating/removing scene nodes, your registered classes), tag a test
+`TAG_INTEGRATION` and include `framework/engine.h`. The runner exposes the live `SceneTree`
+on the test's context:
+
+```cpp
+#include "framework/assert.h"
+#include "framework/engine.h"
+#include "framework/registry.h"
+
+GDX_TEST_T(engine, can_build_scene_graph, TAG_INTEGRATION) {
+    godot::SceneTree *tree = gdextest::engine_tree(ctx);   // live engine tree
+    GDX_EXPECT_NOT_NULL(static_cast<void *>(tree));
+    godot::Node *child = memnew(godot::Node);
+    child->set_name("temp");
+    tree->get_root()->add_child(child);
+    GDX_EXPECT(child->get_parent() != nullptr);
+    tree->get_root()->remove_child(child);
+    memdelete(child);
+}
+```
+
+`gdextest::engine_tree(ctx)` is the live `SceneTree`; `gdextest::engine_node(ctx)` is the
+host `Node` the adapter ran from. These return null for pure (non-engine-triggered)
+invocations, so guard with `GDX_EXPECT_NOT_NULL` before dereferencing. Because the engine
+handle is an opaque `void*` on `TestContext`, the framework core stays Godot-free.
 
 ## Command-line flags
 
@@ -161,4 +191,4 @@ build**, and drive them through a tiny per-extension adapter.
 - The run must be deferred until `EditorFileSystem.is_scanning()` is false, or the editor
   can crash on shutdown (notes.md §5).
 - `--gdxtest-list` alone doesn't trigger a run; pair it with `--gdxtest-run`.
-- Exit code 2 (usage error) is reserved but not yet emitted.
+- Exit code 2 (usage error) is emitted for malformed or unknown `--gdxtest-*` options.

@@ -147,6 +147,9 @@ public:
     const std::vector<Failure> &failures() const;
     [[noreturn]] static void abort_test(const char *file, int line, std::string message);
 
+    void set_engine(void *engine);       // set by the runner in engine-triggered runs
+    void *engine_handle() const;         // opaque live-engine host, or null
+
     void track_object(void *obj);  // M4 stub — leak/UAF tracking hooks
     void track_ref(void *ref);     // M4 stub
 };
@@ -157,17 +160,41 @@ the implementation behind `GDX_ABORT_TEST`; it records on the currently-active c
 before throwing. `track_object`/`track_ref` are declared so assertion code can reference
 them without `#ifdef` churn; the tracking implementation is a later milestone.
 
+The engine handle is an opaque `void*` so the core stays Godot-free. When a run happens
+through the engine trigger, the runner sets it to the live host node; engine-boundary
+accessors in [`framework/engine.h`](../src/framework/engine.h) cast it to a real
+`godot::Node`/`godot::SceneTree` (see [Live-engine tests](#live-engine-tests)).
+
+## Live-engine tests
+
+Header: `framework/engine.h` (engine boundary — the second framework header that pulls in
+godot-cpp, alongside `runner.h`).
+
+```cpp
+namespace gdextest {
+// The host Node the adapter ran from, or null when no engine is attached.
+godot::Node *engine_node(TestContext &ctx);
+// The live SceneTree (engine_node(ctx)->get_tree()), or null.
+godot::SceneTree *engine_tree(TestContext &ctx);
+}  // namespace gdextest
+```
+
+Include this header and tag the test `GDX_TEST_T(..., TAG_INTEGRATION)` to reach the live
+engine: singletons, `ClassDB`, and building real scene-tree structure (`memnew`,
+`add_child`, `remove_child`, `memdelete`). These functions return null for pure
+(non-engine-triggered) invocations, so guard the result before dereferencing.
+
 ## Runner entry points
 
-Header: `framework/runner.h`. This is the **only** framework header that pulls in
-godot-cpp.
+Header: `framework/runner.h`. Only the engine-boundary headers (`runner.h`, `engine.h`)
+pull in godot-cpp.
 
 ```cpp
 namespace gdextest {
 
 // Called by the host adapter with any Node whose get_tree() yields the live SceneTree.
 // No-op unless triggered (GDX_RUN_TESTS env, or --gdxtest-run in either cmdline list).
-// Exit codes: 0 = all passed, 1 = ≥1 failure, 2 = usage error (reserved).
+// Exit codes: 0 = all passed, 1 = ≥1 failure, 2 = usage error (malformed/unknown option).
 void run_all_and_quit(void *tree_node);
 
 // Run a single test body with a fresh TestContext; return its failure count.

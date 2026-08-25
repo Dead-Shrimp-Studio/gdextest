@@ -52,14 +52,19 @@ GDX_TEST(math_utils, clamp_keeps_value_in_range) {
 }
 ```
 
-Engine-facing tests run inside a real Godot process, so singletons and your registered
-classes are live — even though a test body only receives a `TestContext&` (the runner does
-not expose the `SceneTree` to bodies yet):
+Engine-facing tests run inside a real Godot process. Singletons, your registered classes,
+and the live SceneTree are all reachable from a test body that opts in: tag the test
+TAG_INTEGRATION and include framework/engine.h. Then gdextest::engine_tree(ctx) is the live
+SceneTree and gdextest::engine_node(ctx) is the host Node. Pure-logic suites (no tag, no
+engine.h) get null from both — the engine is opt-in:
 
 ```cpp
+#include "framework/engine.h"
+
 GDX_TEST_T(my_extension, class_is_registered, TAG_INTEGRATION) {
-    GDX_EXPECT_TRUE(godot::ClassDB::class_exists("MyCustomNode"));
     GDX_EXPECT_NE(godot::OS::get_singleton()->get_processor_count(), 0);
+    godot::SceneTree *tree = gdextest::engine_tree(ctx);   // live engine tree
+    GDX_EXPECT_NOT_NULL(static_cast<void *>(tree));
 }
 ```
 

@@ -72,9 +72,14 @@ struct Registrar {
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx)
 
 // Tagged variant: GDX_TEST_T(suite, name, TAG_UNIT | TAG_SLOW, ...)
+// The Registrar initializer runs inside an immediately-invoked lambda that brings
+// the gdextest namespace into scope, so bare tag names (TAG_INTEGRATION, …) resolve
+// exactly as the docs describe, no matter what namespace the caller is in.
 #define GDX_TEST_T(suite, name, tags)                                                \
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx);             \
-    static const ::gdextest::Registrar gdx_reg_##suite##_##name{                     \
-        ::gdextest::TestCase{ #suite, #name, &gdx_test_##suite##_##name,            \
-                              (tags), __FILE__, __LINE__ } };                        \
+    static const ::gdextest::Registrar gdx_reg_##suite##_##name{ []() {              \
+        using namespace ::gdextest;                                                   \
+        return ::gdextest::TestCase{ #suite, #name, &gdx_test_##suite##_##name,      \
+                                     (tags), __FILE__, __LINE__ };                   \
+    }() };                                                                             \
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx)

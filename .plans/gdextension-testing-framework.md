@@ -35,9 +35,10 @@ in git, and a CI pipeline runs the whole suite on every push.
 
 - `scons platform=linux target=template_debug tests=true` → `bin/libgdx-test….so`
   (statically links godot-cpp, exports `gdx_test_library_init`).
-- `godot --headless --editor --path testdata/project -- --gdxtest-run` → **15 passed, 0 failed**,
-  exit 0. Deliberate failure → exit 1; `--gdxtest-filter=counter.*` → 4 tests;
-  `--gdxtest-run --gdxtest-list` → 15 listed; JSON totals correct; repeat runs stable.
+- `godot --headless --editor --path testdata/project -- --gdxtest-run` → **18 passed, 0 failed**,
+  exit 0 (15 pure + 3 live-engine). Deliberate failure → exit 1; malformed/unknown
+  `--gdxtest-*` → exit 2 (usage error); `--gdxtest-filter=counter.*` → 4 tests;
+  `--gdxtest-run --gdxtest-list` → 18 listed; JSON totals correct; repeat runs stable.
 - `run_tests.sh` wires the built library into `testdata/project/addons/gdxtest/bin/`
   (the path the `.gdextension` manifest loads from) and points `XDG_DATA_HOME` at a temp dir.
 
@@ -61,11 +62,11 @@ Each item ends with something runnable/verifiable.
 - [x] **M2 — Fixture project + headless run**: `testdata/project/`, plugin wrapper, `run_tests.sh`.
 - [x] **M3 — Docs + consumer packaging**: README, docs set, reusable `SConscript`.
 - [x] **M5 — CI**: `.github/workflows/ci.yml` builds → runs headless → uploads JSON.
-- [ ] **Exit code 2 (usage error)**: emit a distinct code for malformed `--gdxtest-*` flags.
+- [x] **M6 — Live-engine + usage-error exit code**: exit 2 for malformed/unknown flags;
+      expose the live `SceneTree`/`Node` to test bodies via `framework/engine.h`
+      (opaque handle on `TestContext`); integration suite + docs.
 - [ ] **`skip` support**: a way to mark tests skipped (timing/fixture/precondition) so JSON
       `skip` is populated.
-- [ ] **Expose the live `SceneTree`/root `Node` to test bodies** so engine integration suites can
-      create nodes and drive the tree directly (not just singletons).
 - [ ] **Async / multi-frame tests (M2-era)**: `process_frame`-driven await for frame-dependent
       code; hooks already exist in `config.h` / `notes.md`.
 - [ ] **Object leak / UAF tracking (M4-era)**: implement `TestContext::track_object` /

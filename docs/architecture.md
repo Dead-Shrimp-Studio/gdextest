@@ -41,9 +41,12 @@ The most important design constraint, repeated in comments throughout the code:
    are pure C++ (`std::string`, `std::vector`, function-local statics). Godot forbids
    interacting with engine objects before initialization, and static registration happens
    at library load, so the registry must never touch engine types.
-2. **Only the runner touches the engine boundary.** `src/framework/runner.cpp` is the single
-   TU in the framework core that includes godot-cpp headers (for `OS`, `SceneTree`,
-   `PackedStringArray`, …). Everything else in `src/framework/` is portable C++.
+2. **Only the engine-boundary files touch Godot.** The framework core (`registry.*`,
+   `context.h`, `assert.h`) is pure C++. Godot types appear only in two engine-boundary
+   headers: `src/framework/runner.h/.cpp` (the runner) and `src/framework/engine.h` (the
+   accessors that hand a live `SceneTree` to integration test bodies). A body still gets
+   only a `TestContext&`; reaching the engine is opt-in via `engine.h` + a `TAG_INTEGRATION`
+   tag.
 3. **The adapter is the host's only file that knows the extension.** `src/support/adapter.cpp`
    is per-extension glue (~40 lines): trigger detection, `bootstrap()`, and the call into
    the runner. The framework ships it as a template; each host rewrites the `bootstrap()`

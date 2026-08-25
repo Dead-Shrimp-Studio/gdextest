@@ -21,6 +21,12 @@ namespace {
 
 struct TestAborted {};
 
+// Raised by flag parsing on malformed/unknown --gdxtest-* input; the runner
+// catches it and quits with the reserved usage-error code 2.
+struct UsageError {
+    std::string message;
+};
+
 // Single-threaded; the runner sets this before invoking each body so GDX_ABORT_TEST
 // (static method, no ctx ref) can record on the active context before throwing.
 // (thread_local would be the M2 choice once async continuations land; M1 is sync-only.)
@@ -71,15 +77,31 @@ static Options parse_from_godot() {
     if (has(eng, "--gdxtest-run") || has(usr, "--gdxtest-run")) o.run = true;
 
     // Walk user args for option flags (--gdxtest-*). Values come as "--flag=value" or
-    // "--flag value"; we support the = form for filter/shard/shuffle/json.
+    // "--flag value"; we support the = form for filter/shard/shuffle/json. Malformed
+    // values raise UsageError -> exit code 2 (plan: usage error).
     auto take_value = [](const std::string &arg, const std::string &flag,
                          std::string &out) -> bool {
         if (arg.rfind(flag + "=", 0) == 0) { out = arg.substr(flag.size() + 1); return true; }
         return false;
     };
+    // Strict integer parse: must consume the whole token, else it is a usage error.
+    auto parse_int = [](const std::string &s, const char *what) -> int {
+        size_t pos = 0;
+        int v = 0;
+        try {
+            v = std::stoi(s, &pos);
+        } catch (...) {
+            throw UsageError{std::string("invalid ") + what + ": '" + s + "'"};
+        }
+        if (pos != s.size()) {
+            throw UsageError{std::string("invalid ") + what + ": '" + s + "'"};
+        }
+        return v;
+    };
 
     for (int i = 0; i < usr.size(); ++i) {
         std::string a = godot_to_std(usr[i]);
+        if (a == "--gdxtest-run") { continue; }               // trigger (already detected above)
         if (a == "--gdxtest-list") { o.list_only = true; continue; }
         if (a == "--gdxtest-shuffle") { o.shuffle = true; continue; }
         std::string v;
@@ -98,18 +120,26 @@ static Options parse_from_godot() {
         }
         if (take_value(a, "--gdxtest-shuffle", v)) {
             o.shuffle = true;
-            o.shuffle_seed = static_cast<unsigned>(std::stoul(v));
+            o.shuffle_seed = static_cast<unsigned>(parse_int(v, "shuffle seed"));
             continue;
         }
         if (take_value(a, "--gdxtest-shard", v)) {
             auto slash = v.find('/');
-            if (slash != std::string::npos) {
-                o.shard_index = std::stoi(v.substr(0, slash));
-                o.shard_count = std::stoi(v.substr(slash + 1));
+            if (slash == std::string::npos) {
+                throw UsageError{"invalid shard: expected 'k/n', got '" + v + "'"};
+            }
+            o.shard_index = parse_int(v.substr(0, slash), "shard index");
+            o.shard_count = parse_int(v.substr(slash + 1), "shard count");
+            if (o.shard_index < 0 || o.shard_count < 1 || o.shard_index >= o.shard_count) {
+                throw UsageError{"invalid shard: k must be in [0, n), n >= 1 for '" + v + "'"};
             }
             continue;
         }
         if (take_value(a, "--gdxtest-json", v)) { o.json_path = v; continue; }
+        // Any other recognized trigger/option prefix we don't know is a usage error.
+        if (a.rfind("--gdxtest-", 0) == 0) {
+            throw UsageError{"unknown option: '" + a + "'"};
+        }
     }
     return o;
 }
@@ -206,9 +236,10 @@ static void write_json(const std::string &path, const std::vector<TestResult> &r
 }
 
 // --- run one test body -----------------------------------------------------
-static TestResult run_one(const TestCase &tc) {
+static TestResult run_one(const TestCase &tc, void *engine_node) {
     TestResult r; r.tc = &tc;
     TestContext ctx;
+    if (engine_node) ctx.set_engine(engine_node);   // expose engine to integration bodies
     g_active_ctx = &ctx;
     auto t0 = std::clock();   // process time; good enough for M1 relative durations
     try {
@@ -237,7 +268,16 @@ int run_sub_and_count_failures(void (*body)(TestContext &)) {
 }
 
 void run_all_and_quit(void *tree_node) {
-    Options o = parse_from_godot();
+    Options o;
+    try {
+        o = parse_from_godot();
+    } catch (const UsageError &e) {
+        std::printf("gdxtest: usage error: %s\n", e.message.c_str());
+        godot::Node *node = static_cast<godot::Node *>(tree_node);
+        godot::SceneTree *tree = node ? node->get_tree() : nullptr;
+        if (tree) tree->quit(2);   // reserved usage-error exit code (plan §3)
+        return;
+    }
     if (!o.run) return;   // no trigger — normal startup continues (plan §3)
 
     godot::Node *node = static_cast<godot::Node *>(tree_node);
@@ -259,7 +299,7 @@ void run_all_and_quit(void *tree_node) {
     std::vector<TestResult> results;
     results.reserve(selected.size());
     for (const TestCase *tc : selected) {
-        results.push_back(run_one(*tc));
+        results.push_back(run_one(*tc, tree_node));
     }
 
     write_human(results);

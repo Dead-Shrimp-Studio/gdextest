@@ -13,17 +13,18 @@ wants.
 
 - Suites are plain C++ using googletest-style macros (`GDX_TEST`, `GDX_EXPECT_*`).
 - Pure-logic tests need no engine at all; engine-facing tests run inside a real Godot
-  process with live singletons and your extension's registered classes. (Test bodies
-  receive only a `TestContext&`; scene-tree access is not exposed to bodies yet.)
-- The framework core is a pure C++ library with no Godot types — only the runner touches
-  the engine boundary.
+  process. Tag a test `TAG_INTEGRATION` and include `framework/engine.h` to reach the live
+  `SceneTree` from its `TestContext` — singletons, `ClassDB`, and scene-tree structure.
+- The framework core is a pure C++ library with no Godot types — only the engine-boundary
+  headers (`runner.h`, `engine.h`) touch Godot.
 
 ## Status
 
 Working and verified on Godot **4.5** (Linux x86_64): framework core, sync runner, human +
-JSON reporting, filtering/sharding/shuffling, the reference fixture, headless execution
-(15 self + reference tests green, exit 0), and the reusable consumer `SConscript` wiring
-(this repo's `SConstruct` is the reference consumer of it). Not yet built: async/multi-frame
+JSON reporting, filtering/sharding/shuffling, usage-error exit code 2, live-engine
+integration tests, the reference fixture, headless execution (18 self + reference +
+integration tests green, exit 0), and the reusable consumer `SConscript` wiring (this
+repo's `SConstruct` is the reference consumer of it). Not yet built: async/multi-frame
 tests and object leak/UAF tracking (stubs only). See
 [.plans/gdextension-testing-framework.md](../.plans/gdextension-testing-framework.md) for
 the milestone plan.

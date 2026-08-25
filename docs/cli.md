@@ -36,10 +36,15 @@ case-sensitive, matched against `suite.name`, the suite, or the name.
 | --- | --- |
 | `0` | All selected tests passed |
 | `1` | At least one test failed or crashed |
-| `2` | Usage error (reserved; not yet emitted) |
+| `2` | Usage error: malformed or unknown `--gdxtest-*` option |
 
 Exit happens via `SceneTree::quit(code)`, which propagates to the OS exit code under
 `--headless` (M0-verified: `quit(0)→0`, `quit(1)→1`, `quit(7)→7`).
+
+`2` is emitted when an option value fails to parse (e.g. `--gdxtest-shard=xyz`, a
+non-numeric `--gdxtest-shuffle` seed, or a shard outside `[0, n)`) or when an option
+starting with `--gdxtest-` is unknown (e.g. `--gdxtest-bogus`). The offending option is
+printed to stdout before exiting.
 
 ## Human output
 
