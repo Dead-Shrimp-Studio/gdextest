@@ -15,6 +15,14 @@
 
 namespace gdextest { void run_all_and_quit(void *tree_node); }
 
+// Optional consumer hook. A host can provide tests/gdxtest_bootstrap.cpp with
+// this symbol; the generic adapter remains linkable when it is absent.
+#if defined(__GNUC__) || defined(__clang__)
+extern "C" void gdxtest_consumer_bootstrap() __attribute__((weak));
+#else
+extern "C" void gdxtest_consumer_bootstrap();
+#endif
+
 namespace {
 
 // M0-verified trigger predicate: env var OR --gdxtest-run in either cmdline list.
@@ -31,7 +39,9 @@ bool test_trigger_present() {
 // Bootstrap callback (plan §2): start only the services the code under test needs.
 // For this repo there are none yet; real hosts list theirs here.
 void bootstrap() {
-    // (host-specific setup goes here)
+#if defined(__GNUC__) || defined(__clang__)
+    if (gdxtest_consumer_bootstrap) gdxtest_consumer_bootstrap();
+#endif
 }
 
 } // namespace

@@ -19,9 +19,11 @@ Prerequisites: `scons`, a C++17 toolchain, and a Godot **4.5** binary (this repo
 `extern/godot-cpp` to the `4.5` branch).
 
 ```bash
-# one command: build the test library, wire it into the fixture, run headless
-GODOT=/path/to/Godot_v4.5-stable_linux.x86_64 ./run_tests.sh
+# one command: build, generate the fixture, and run headless
+GODOT=/path/to/Godot_v4.5-stable_linux.x86_64 ./gdxtest test
 ```
+
+The CLI also supports `./gdxtest init`, `./gdxtest list`, and `./gdxtest clean`.
 
 Or step by step:
 

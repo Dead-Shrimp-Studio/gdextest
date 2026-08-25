@@ -84,9 +84,18 @@ framework_sources = [
     to_script_rel(source)
     for source in env.Glob(str(framework_root.abspath) + "/src/framework/*.cpp")
 ]
+suite_sources = gdxtest.get("suites")
+if suite_sources is None:
+    configured_sources = os.environ.get("GDXTEST_SOURCES", "")
+    suite_sources = ([root_path(path) for path in configured_sources.split(os.pathsep)
+                      if path] if configured_sources else env.Glob("#tests/**/*.cpp"))
+bootstrap = gdxtest.get("bootstrap", "tests/gdxtest_bootstrap.cpp")
+bootstrap_path = env.File(root_path(bootstrap))
+if bootstrap_path.exists():
+    suite_sources = list(suite_sources) + [bootstrap_path]
 sources = (
     [to_script_rel(entry), to_script_rel(adapter)]
-    + [to_script_rel(source) for source in gdxtest.get("suites", [])]
+    + [to_script_rel(source) for source in suite_sources]
     + framework_sources
 )
 
@@ -149,6 +158,10 @@ if generate_fixture:
             godot_version=godot_version,
             library_key=library_key,
             native_extensions=gdxtest.get("native_extensions", []),
+            extension_library=gdxtest.get("extension_library"),
+            extension_manifest=gdxtest.get("extension_manifest"),
+            fixture_assets=gdxtest.get("fixture_assets", []),
+            project_source_root=env.Dir("#").abspath,
         )
         return 0
 

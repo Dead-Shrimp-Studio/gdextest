@@ -82,7 +82,9 @@ if lib:
     Default(lib)
 ```
 
-This produces the test library and `build/gdxtest/project/`. The generated project contains
+This produces the test library and `build/gdxtest/project/`. Consumers can invoke the same
+flow through `./gdxtest test`, or bootstrap a new repository with `./gdxtest init --ci`.
+The generated project contains
 the scan-safe `EditorPlugin` wrapper and points at the generated library, so there is no
 copying or symlink step.
 
@@ -255,8 +257,7 @@ project root. Optional extras your env can carry: `sanitize=true` (ASan/UBSan) a
 ## 9. Run and wire into CI
 
 ```bash
-godot --headless --editor --path build/gdxtest/project -- \
-    --gdxtest-run --gdxtest-json=results.json
+./gdxtest test --json=results.json
 ```
 
 Exit code `0` = green, `1` = red — map it straight to your pipeline. For parallel CI use

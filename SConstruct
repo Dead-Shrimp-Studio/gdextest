@@ -2,16 +2,18 @@
 # Build integration for the gdextest framework (this repo is the reference host).
 #
 #   scons platform=linux target=template_debug tests=true
-#
-# `tests=true` builds the framework core + this repo's entry/adapter/suites into
-# a separately-named shared object (libgdx-test...so) that only testdata/project
-# loads. Release artifacts carry neither the define nor the file.
 
-# godot-cpp lives in extern/godot-cpp; its own SConstruct builds the static lib.
 cpp_root = "#extern/godot-cpp"
 
 # --- options ----------------------------------------------------------------
-from SCons.Script import Variables, EnumVariable, BoolVariable
+import sys
+from pathlib import Path
+
+from SCons.Script import Variables, EnumVariable, BoolVariable, Alias, ARGUMENTS
+
+_tools_dir = Path(Dir("#").abspath) / "tools"
+sys.path.insert(0, str(_tools_dir))
+from gdxtest_config import load_config
 
 opts = Variables(None)
 opts.Add(EnumVariable("platform", "target platform", "linux",
@@ -22,7 +24,17 @@ opts.Add(BoolVariable("tests", "build the test framework", False))
 opts.Add(BoolVariable("sanitize", "ASan/UBSan", False))
 opts.Add(BoolVariable("coverage", "code coverage", False))
 
+# SCons' Variables accepts command-line values through an environment. Use a
+# normal SCons environment first, then apply the option declarations so bool
+# and enum conversion remains SCons-owned.
+env = Environment(tools=["default"])
+opts.Update(env)
 env = Environment(options=opts, tools=["default"])
+
+# Preserve explicit command-line values for the framework even on SCons versions
+# that do not propagate Variables values into the final environment.
+if "tests" in ARGUMENTS:
+    env["tests"] = ARGUMENTS["tests"].lower() in ("1", "true", "yes", "on")
 
 # --- godot-cpp static lib + include paths -----------------------------------
 env.SConscript(cpp_root + "/SConstruct",
@@ -42,22 +54,24 @@ if env["coverage"]:
 
 # --- the framework test library ----------------------------------------------
 # The reusable wiring supplies the generic entry, adapter, and fixture. The
-# reference host only declares its suites and output name.
+# reference host only declares its output name; suites use convention discovery.
 lib = env.SConscript(
     "SConscript",
-    variant_dir="build/gdextest",
+    variant_dir="build/gdxtest",
     duplicate=0,
     exports={"env": env, "gdxtest": {
         "enabled": env["tests"],
-        "suites": [
-            "tests/framework_self_tests.cpp",
-            "tests/string_utils_tests.cpp",
-            "tests/counter_state_tests.cpp",
-            "tests/engine_integration_tests.cpp",
-            "tests/reference_skip_tests.cpp",
-        ],
+        "suites": None,
         "out_name": "libgdx-test",
     }},
 )
 if lib:
     Default(lib)
+
+# `scons test` remains useful for SCons-native users. The CLI owns the Godot
+# invocation because it can validate the executable and provide consistent flags.
+def _run_gdxtest(target, source, env):
+    command = [sys.executable, str(_tools_dir / "gdxtest.py"), "test"]
+    return env.Execute(" ".join(command))
+
+Alias("test", lib, _run_gdxtest)
