@@ -13,12 +13,20 @@ class GdextestPlugin : public godot::EditorPlugin {
     GDCLASS(GdextestPlugin, godot::EditorPlugin)
 
 protected:
-    static void _bind_methods() {}
+    static void _bind_methods() {
+        godot::ClassDB::bind_method(godot::D_METHOD("_run_tests"), &GdextestPlugin::_run_tests);
+    }
 
 public:
     void _ready() override {
-        godot::Node *self = this;
-        gdextest_adapter::maybe_run(self);
+        // Defer until the plugin's ready callback has returned. Calling quit()
+        // synchronously while the editor is dispatching plugin initialization
+        // can leave Godot tearing down the scene tree underneath this object.
+        call_deferred("_run_tests");
+    }
+
+    void _run_tests() {
+        gdextest_adapter::maybe_run(this);
     }
 };
 
