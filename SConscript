@@ -5,9 +5,9 @@
 # `env`. The common consumer path only needs suites:
 #
 #   lib = env.SConscript(
-#       "extern/gdxtest/SConscript",
-#       variant_dir="build/gdxtest", duplicate=0,
-#       exports={"env": env, "gdxtest": {
+#       "extern/gdextest/SConscript",
+#       variant_dir="build/gdextest", duplicate=0,
+#       exports={"env": env, "gdextest": {
 #           "enabled": env.get("tests", False),
 #           "suites": Glob("tests/*.cpp"),
 #       }},
@@ -28,12 +28,12 @@ from SCons.Errors import UserError
 from SCons.Script import Default
 
 try:
-    Import("gdxtest")
+    Import("gdextest")
 except Exception:
-    gdxtest = {}
+    gdextest = {}
 
 # --- enabled? ----------------------------------------------------------------
-enabled = gdxtest.get("enabled")
+enabled = gdextest.get("enabled")
 if enabled is None:
     enabled = env.get("tests", False)
     if not enabled:
@@ -43,13 +43,13 @@ if enabled is None:
             pass
 
 if not enabled:
-    print("gdxtest: disabled (pass tests=true or gdxtest['enabled'])")
+    print("gdextest: disabled (pass tests=true or gdextest['enabled'])")
     Return()
 
 # --- paths and options -------------------------------------------------------
 framework_root = Dir(".").srcnode()
-out_dir = gdxtest.get("out_dir", "bin")
-out_name = gdxtest.get("out_name", "libgdxtest")
+out_dir = gdextest.get("out_dir", "bin")
+out_name = gdextest.get("out_name", "libgdextest")
 
 # godot-cpp sets env["suffix"] (".linux.template_debug.x86_64"). Fall back
 # for hosts whose env did not go through godot-cpp's SConscript.
@@ -61,10 +61,10 @@ if not suffix:
     if plat and tgt:
         suffix = f".{plat}.{tgt}.{arch}"
 
-entry = gdxtest.get("entry", framework_root.File("src/gdx_test_entry.cpp"))
-adapter = gdxtest.get("adapter", framework_root.File("src/support/adapter.cpp"))
+entry = gdextest.get("entry", framework_root.File("src/gdextest_entry.cpp"))
+adapter = gdextest.get("adapter", framework_root.File("src/support/adapter.cpp"))
 if not entry or not adapter:
-    raise UserError("gdxtest: 'entry' and 'adapter' must be valid paths")
+    raise UserError("gdextest: 'entry' and 'adapter' must be valid paths")
 
 
 def root_path(path):
@@ -84,14 +84,14 @@ framework_sources = [
     to_script_rel(source)
     for source in env.Glob(str(framework_root.abspath) + "/src/framework/*.cpp")
 ]
-suite_sources = gdxtest.get("suites")
+suite_sources = gdextest.get("suites")
 if suite_sources is None:
-    configured_sources = os.environ.get("GDXTEST_SOURCES", "")
+    configured_sources = os.environ.get("GDEXTEST_SOURCES", "")
     suite_sources = ([root_path(path) for path in configured_sources.split(os.pathsep)
                       if path] if configured_sources else env.Glob("#tests/**/*.cpp"))
-bootstrap = gdxtest.get("bootstrap", "tests/gdxtest_bootstrap.cpp")
-bootstrap_path = env.File(root_path(bootstrap))
-if bootstrap_path.exists():
+bootstrap = gdextest.get("bootstrap", os.environ.get("GDEXTEST_BOOTSTRAP"))
+bootstrap_path = env.File(root_path(bootstrap)) if bootstrap else None
+if bootstrap_path and bootstrap_path.exists():
     suite_sources = list(suite_sources) + [bootstrap_path]
 sources = (
     [to_script_rel(entry), to_script_rel(adapter)]
@@ -101,49 +101,61 @@ sources = (
 
 # --- test library ------------------------------------------------------------
 test_env = env.Clone()
-test_env.Append(CPPDEFINES=["GDX_TESTS_ENABLED"])
+test_env.Append(CPPDEFINES=["GDEXTEST_ENABLED", "GDEXTEST_BUILDING"])
 test_env.Append(CPPPATH=[framework_root.Dir("src")])
+# Keep warnings enabled for gdextest and consumer code, but do not emit the
+# vendored godot-cpp header warnings into every consumer build.
+godot_cpp_includes = [include for include in test_env.get("CPPPATH", [])
+                      if "godot-cpp" in str(include)]
+for include in godot_cpp_includes:
+    test_env.Append(CCFLAGS=["-isystem", str(include)])
 test_env.Append(CCFLAGS=["-std=c++17", "-fPIC", "-Wall", "-Wextra"])
 # godot-cpp defaults to -fno-exceptions; the framework uses exceptions to abort
 # an individual test body without crossing an engine callback boundary.
 test_env.Append(CXXFLAGS=["-fexceptions"])
 
 if not test_env.get("LIBS"):
-    print("gdxtest: WARNING - env has no LIBS; did you wire godot-cpp before calling this SConscript?")
+    print("gdextest: WARNING - env has no LIBS; did you wire godot-cpp before calling this SConscript?")
 
 out_abs = os.path.join(env.Dir("#").abspath, out_dir)
 target = f"{out_abs}/{out_name}{suffix}{test_env['SHLIBSUFFIX']}"
 lib = test_env.SharedLibrary(target=target, source=sources)
-print(f"gdxtest: test library -> {target}")
+print(f"gdextest: test library -> {target}")
 
 # --- generated fixture -------------------------------------------------------
-generate_fixture = gdxtest.get("generate_fixture", True)
+generate_fixture = gdextest.get("generate_fixture", True)
 if generate_fixture:
-    fixture_dir = gdxtest.get("fixture_dir", "build/gdxtest/project")
+    fixture_dir = gdextest.get("fixture_dir", "build/gdextest/project")
     fixture_abs = os.path.join(env.Dir("#").abspath, fixture_dir)
-    project_name = gdxtest.get("project_name", "gdxtest fixture")
-    entry_symbol = gdxtest.get("entry_symbol", "gdx_test_library_init")
-    godot_version = gdxtest.get("godot_version", "4.5")
-    manifest_name = gdxtest.get("manifest_name", out_name + ".gdextension")
+    project_name = gdextest.get("project_name", "gdextest fixture")
+    entry_symbol = gdextest.get("entry_symbol", "gdextest_library_init")
+    godot_version = gdextest.get("godot_version", "4.5")
+    host_mode = gdextest.get("host_mode", os.environ.get("GDEXTEST_HOST_MODE", "editor"))
+    manifest_name = gdextest.get("manifest_name", out_name + ".gdextension")
     library_basename = os.path.basename(target)
 
     platform = env.get("platform", "linux")
     target_name = env.get("target", "template_debug")
     arch = env.get("arch", "x86_64")
     feature = "release" if target_name == "template_release" else "debug"
-    library_key = gdxtest.get(
+    library_key = gdextest.get(
         "library_key", f"{platform}.{feature}.{arch}")
 
+    host_targets = ([
+        os.path.join(fixture_abs, "addons", "gdextest", "plugin.cfg"),
+        os.path.join(fixture_abs, "addons", "gdextest", "plugin.gd"),
+    ] if host_mode == "editor" else [
+        os.path.join(fixture_abs, "addons", "gdextest", "runtime.gd"),
+    ])
     fixture_targets = [
         os.path.join(fixture_abs, "project.godot"),
-        os.path.join(fixture_abs, "addons", "gdxtest", "plugin.cfg"),
-        os.path.join(fixture_abs, "addons", "gdxtest", "plugin.gd"),
-        os.path.join(fixture_abs, "addons", "gdxtest", manifest_name),
-        os.path.join(fixture_abs, "addons", "gdxtest", "bin", library_basename),
+        *host_targets,
+        os.path.join(fixture_abs, "addons", "gdextest", manifest_name),
+        os.path.join(fixture_abs, "addons", "gdextest", "bin", library_basename),
     ]
     generator_path = framework_root.File("tools/generate_fixture.py")
     generator_spec = importlib.util.spec_from_file_location(
-        "gdxtest_fixture_generator", generator_path.abspath)
+        "gdextest_fixture_generator", generator_path.abspath)
     fixture_generator = importlib.util.module_from_spec(generator_spec)
     generator_spec.loader.exec_module(fixture_generator)
 
@@ -157,10 +169,11 @@ if generate_fixture:
             project_name=project_name,
             godot_version=godot_version,
             library_key=library_key,
-            native_extensions=gdxtest.get("native_extensions", []),
-            extension_library=gdxtest.get("extension_library"),
-            extension_manifest=gdxtest.get("extension_manifest"),
-            fixture_assets=gdxtest.get("fixture_assets", []),
+            native_extensions=gdextest.get("native_extensions", []),
+            extension_library=gdextest.get("extension_library"),
+            extension_manifest=gdextest.get("extension_manifest"),
+            fixture_assets=gdextest.get("fixture_assets", []),
+            host_mode=host_mode,
             project_source_root=env.Dir("#").abspath,
         )
         return 0
@@ -171,6 +184,6 @@ if generate_fixture:
         generate_fixture_action,
     )
     Default(fixture)
-    print(f"gdxtest: fixture -> {fixture_abs}")
+    print(f"gdextest: fixture -> {fixture_abs}")
 
 Return("lib")

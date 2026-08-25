@@ -1,7 +1,7 @@
 // Host suite #2 (plan §14 M1: "stateful"). Exercises a small state machine — the
 // §12 "state" category. A trivial counter stands in for a real extension module
 // until one exists; the point is to prove fixture-style per-test state isolation.
-#ifdef GDX_TESTS_ENABLED
+#ifdef GDEXTEST_ENABLED
 
 #include "framework/assert.h"
 #include "framework/registry.h"
@@ -48,4 +48,4 @@ GDX_TEST(counter, reset_clears_state) {
     GDX_EXPECT_FALSE(c.was_bumped());
 }
 
-#endif // GDX_TESTS_ENABLED
+#endif // GDEXTEST_ENABLED

@@ -14,8 +14,8 @@ object, in a real (headless) Godot process.
 Suites register themselves in a static registry when the test `.so` is loaded. The fixture
 Godot project enables an `EditorPlugin` that, once the editor is up (and the filesystem
 scan has finished), calls the adapter. The adapter detects a trigger (`GDX_RUN_TESTS` env
-var or `--gdxtest-run`), bootstraps the extension's services, and hands the live
-`SceneTree` to the runner. The runner parses `--gdxtest-*` flags, selects tests, runs them
+var or `--gdextest-run`), bootstraps the extension's services, and hands the live
+`SceneTree` to the runner. The runner parses `--gdextest-*` flags, selects tests, runs them
 synchronously, prints results, and calls `SceneTree::quit(code)` — the process exits with
 that code. That is the entire contract.
 
@@ -63,22 +63,22 @@ The most important design constraint, repeated in comments throughout the code:
 
 1. **Build.** `scons tests=true` compiles the framework core, the entry point, the host
    adapter, and the host suites into a separately-named shared object
-   (`libgdx-test…so`) with `GDX_TESTS_ENABLED` defined. Release builds carry neither the
+   (`libgdextest…so`) with `GDEXTEST_ENABLED` defined. Release builds carry neither the
    define nor the file.
 2. **Load.** The fixture project's `project.godot` lists the extension via
    `[native_extensions]`; the `.gdextension` manifest points at the test `.so` and its
-   `entry_symbol`. Godot loads it at startup and calls `gdx_test_library_init`, which
-   registers the `GdxTestPlugin` `EditorPlugin` at the EDITOR initialization level.
+   `entry_symbol`. Godot loads it at startup and calls `gdextest_library_init`, which
+   registers the `GdextestPlugin` `EditorPlugin` at the EDITOR initialization level.
 3. **Enable.** The fixture enables the plugin through `[editor_plugins]` +
    `addons/<name>/plugin.cfg`. The plugin script (a plain `EditorPlugin`) instantiates the
-   native `GdxTestPlugin` once `EditorFileSystem.is_scanning()` is false — quitting earlier
+   native `GdextestPlugin` once `EditorFileSystem.is_scanning()` is false — quitting earlier
    races the scan thread and can crash the editor (see `testing/notes.md` §5).
-4. **Trigger.** The native plugin's `_ready()` calls `gdx_adapter::maybe_run(self)`, which
+4. **Trigger.** The native plugin's `_ready()` calls `gdextest_adapter::maybe_run(self)`, which
    returns immediately unless a trigger is present: `GDX_RUN_TESTS` in the environment, or
-   `--gdxtest-run` in either of Godot's two argument lists (before or after `--`).
-5. **Run.** `run_all_and_quit(tree_node)` parses the `--gdxtest-*` options from the user
+   `--gdextest-run` in either of Godot's two argument lists (before or after `--`).
+5. **Run.** `run_all_and_quit(tree_node)` parses the `--gdextest-*` options from the user
    args, filters/shards/shuffles the registry, runs each selected test body with a fresh
-   `TestContext`, and prints human output (plus JSON if `--gdxtest-json=` was given).
+   `TestContext`, and prints human output (plus JSON if `--gdextest-json=` was given).
 6. **Exit.** `SceneTree::quit(code)` propagates to the OS exit code under `--headless`
    (verified: `quit(0)→0`, `quit(1)→1`, `quit(7)→7`). The runner uses `0` for all-pass,
    `1` for any failure.

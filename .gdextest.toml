@@ -1,0 +1,20 @@
+[gdextest]
+version = "1"
+godot_version = "4.5"
+
+[gdextest.tests]
+sources = ["tests/**/*.cpp"]
+
+[gdextest.host]
+mode = "editor"
+entry_symbol = "gdextest_library_init"
+
+[gdextest.fixture]
+directory = "build/gdextest/project"
+project_name = "gdextest fixture"
+native_extensions = []
+assets = []
+
+[gdextest.output]
+directory = "bin"
+name = "libgdextest"

@@ -6,13 +6,13 @@ The test run is triggered by launching Godot against the fixture project. Engine
 go before `--`; gdextest arguments go after `--`:
 
 ```bash
-godot --headless --editor --path <fixture> -- --gdxtest-run [--gdxtest-* options]
+godot --headless --editor --path <fixture> -- --gdextest-run [--gdextest-* options]
 ```
 
-- The **trigger** (`--gdxtest-run`, or the `GDX_RUN_TESTS` env var) is detected in *both*
+- The **trigger** (`--gdextest-run`, or the `GDX_RUN_TESTS` env var) is detected in *both*
   argument lists — before or after `--` — because Godot 4.5 splits them differently
   (`get_cmdline_args()` vs `get_cmdline_user_args()`; see `testing/notes.md` §3.2).
-- The **option flags** (`--gdxtest-filter=…`, `--gdxtest-json=…`, …) are read from the user
+- The **option flags** (`--gdextest-filter=…`, `--gdextest-json=…`, …) are read from the user
   list only, so pass them after `--`.
 - Without a trigger, the extension loads but does nothing — normal startup continues.
 
@@ -20,12 +20,12 @@ godot --headless --editor --path <fixture> -- --gdxtest-run [--gdxtest-* options
 
 | Flag | Effect | Notes |
 | --- | --- | --- |
-| `--gdxtest-run` | Run the suites, print the summary, quit | The trigger. `GDX_RUN_TESTS=1` env var is equivalent |
-| `--gdxtest-list` | Print the selected tests and quit without running | Requires a trigger to be present |
-| `--gdxtest-filter=<spec>` | Select tests | Comma-separated globs; `-` prefix excludes, e.g. `--gdxtest-filter=string_utils.*,-string_utils.trim_no_op*` |
-| `--gdxtest-shuffle[=<seed>]` | Randomize run order | Fixed seed reproduces the order; `--gdxtest-shuffle` alone seeds with 1 |
-| `--gdxtest-shard=<k>/<n>` | Run shard `k` (0-based) of `n` | Stable hash assignment — same test always lands in the same shard |
-| `--gdxtest-json=<path>` | Write machine-readable results | Path is relative to the process working directory; JSON schema below |
+| `--gdextest-run` | Run the suites, print the summary, quit | The trigger. `GDX_RUN_TESTS=1` env var is equivalent |
+| `--gdextest-list` | Print the selected tests and quit without running | Requires a trigger to be present |
+| `--gdextest-filter=<spec>` | Select tests | Comma-separated globs; `-` prefix excludes, e.g. `--gdextest-filter=string_utils.*,-string_utils.trim_no_op*` |
+| `--gdextest-shuffle[=<seed>]` | Randomize run order | Fixed seed reproduces the order; `--gdextest-shuffle` alone seeds with 1 |
+| `--gdextest-shard=<k>/<n>` | Run shard `k` (0-based) of `n` | Stable hash assignment — same test always lands in the same shard |
+| `--gdextest-json=<path>` | Write machine-readable results | Path is relative to the process working directory; JSON schema below |
 
 Filter grammar (see `docs/api-reference.md` → `Filter`): `*` and `?` wildcards,
 case-sensitive, matched against `suite.name`, the suite, or the name.
@@ -36,14 +36,14 @@ case-sensitive, matched against `suite.name`, the suite, or the name.
 | --- | --- |
 | `0` | All selected tests passed |
 | `1` | At least one test failed or crashed |
-| `2` | Usage error: malformed or unknown `--gdxtest-*` option |
+| `2` | Usage error: malformed or unknown `--gdextest-*` option |
 
 Exit happens via `SceneTree::quit(code)`, which propagates to the OS exit code under
 `--headless` (M0-verified: `quit(0)→0`, `quit(1)→1`, `quit(7)→7`).
 
-`2` is emitted when an option value fails to parse (e.g. `--gdxtest-shard=xyz`, a
-non-numeric `--gdxtest-shuffle` seed, or a shard outside `[0, n)`) or when an option
-starting with `--gdxtest-` is unknown (e.g. `--gdxtest-bogus`). The offending option is
+`2` is emitted when an option value fails to parse (e.g. `--gdextest-shard=xyz`, a
+non-numeric `--gdextest-shuffle` seed, or a shard outside `[0, n)`) or when an option
+starting with `--gdextest-` is unknown (e.g. `--gdextest-bogus`). The offending option is
 printed to stdout before exiting.
 
 ## Human output
@@ -65,10 +65,10 @@ The summary line always shows the `skipped` count. A row is `[SKIP]` (with its r
 when the body called `GDX_SKIP`. Skipped tests never count toward `failed` and never
 change the exit code.
 
-`--gdxtest-list` prints:
+`--gdextest-list` prints:
 
 ```
-# gdxtest list: 15 tests selected
+# gdextest list: 15 tests selected
 self.filter_positive_glob_matches
 string_utils.trim_strips_both_ends
 ...
@@ -76,7 +76,7 @@ string_utils.trim_strips_both_ends
 
 ## JSON output
 
-Written by `--gdxtest-json=<path>`. Schema:
+Written by `--gdextest-json=<path>`. Schema:
 
 ```json
 {
@@ -116,21 +116,21 @@ Run everything, write results for CI:
 
 ```bash
 godot --headless --editor --path testdata/project -- \
-    --gdxtest-run --gdxtest-json=results.json
+    --gdextest-run --gdextest-json=results.json
 ```
 
 One suite, randomized with a reproducible seed:
 
 ```bash
 godot --headless --editor --path testdata/project -- \
-    --gdxtest-run --gdxtest-filter=counter.* --gdxtest-shuffle=42
+    --gdextest-run --gdextest-filter=counter.* --gdextest-shuffle=42
 ```
 
 Parallel CI (4 shards, job 0):
 
 ```bash
 godot --headless --editor --path testdata/project -- \
-    --gdxtest-run --gdxtest-shard=0/4 --gdxtest-json=shard0.json
+    --gdextest-run --gdextest-shard=0/4 --gdextest-json=shard0.json
 ```
 
 Environment-variable trigger (useful when you can't touch the command line):

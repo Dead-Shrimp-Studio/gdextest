@@ -1,6 +1,6 @@
 // Framework self-tests (plan §12, category "self"). Verifies the framework's own
-// behavior before any host code trusts it. Compiled only under GDX_TESTS_ENABLED.
-#ifdef GDX_TESTS_ENABLED
+// behavior before any host code trusts it. Compiled only under GDEXTEST_ENABLED.
+#ifdef GDEXTEST_ENABLED
 
 #include <algorithm>
 #include <string>
@@ -8,7 +8,36 @@
 
 #include "framework/assert.h"
 #include "framework/registry.h"
+#include "framework/host.h"
 #include "framework/runner.h"
+
+namespace {
+bool bootstrap_called = false;
+bool shutdown_called = false;
+void mark_bootstrap() { bootstrap_called = true; }
+void mark_shutdown() { shutdown_called = true; }
+}
+
+GDX_TEST(self, host_config_invokes_portable_callbacks) {
+    bootstrap_called = false;
+    shutdown_called = false;
+    gdextest::configure_host({&mark_bootstrap, &mark_shutdown});
+    gdextest::bootstrap_host();
+    gdextest::shutdown_host();
+    GDX_EXPECT_TRUE(bootstrap_called);
+    GDX_EXPECT_TRUE(shutdown_called);
+    gdextest::configure_host({});
+}
+
+GDX_TEST(self, empty_host_config_is_a_no_op) {
+    bootstrap_called = false;
+    shutdown_called = false;
+    gdextest::configure_host({});
+    gdextest::bootstrap_host();
+    gdextest::shutdown_host();
+    GDX_EXPECT_FALSE(bootstrap_called);
+    GDX_EXPECT_FALSE(shutdown_called);
+}
 
 // --- registry: filter matching -------------------------------------------
 GDX_TEST(self, filter_positive_glob_matches) {
@@ -107,4 +136,4 @@ GDX_TEST(self, skip_stops_body_and_is_not_a_failure) {
     GDX_EXPECT_FALSE(reached_after_skip); // the body stopped at the skip
 }
 
-#endif // GDX_TESTS_ENABLED
+#endif // GDEXTEST_ENABLED

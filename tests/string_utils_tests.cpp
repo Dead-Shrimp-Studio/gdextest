@@ -1,7 +1,7 @@
 // Host suite #1 (plan §14 M1: "pure"). Exercises pure logic — the §12 "unit" category.
 // Until the real extension has modules to test, this stands in with a tiny utility the
-// host is expected to provide (or a std-only equivalent). Compiled under GDX_TESTS_ENABLED.
-#ifdef GDX_TESTS_ENABLED
+// host is expected to provide (or a std-only equivalent). Compiled under GDEXTEST_ENABLED.
+#ifdef GDEXTEST_ENABLED
 
 #include <string>
 
@@ -33,4 +33,4 @@ GDX_TEST(string_utils, trim_no_op_on_clean_input) {
     GDX_EXPECT_STR_EQ(trim("hello"), "hello");
 }
 
-#endif // GDX_TESTS_ENABLED
+#endif // GDEXTEST_ENABLED

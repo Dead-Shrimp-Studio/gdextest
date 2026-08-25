@@ -35,7 +35,7 @@ the milestone plan.
 | --- | --- |
 | [architecture.md](architecture.md) | How the framework fits together: layers, execution model, design rules, lifecycle of a run |
 | [api-reference.md](api-reference.md) | The complete public API: registration macros, assertions, `TestContext`, `Filter`, tags, runner entry points |
-| [cli.md](cli.md) | Invocation, `--gdxtest-*` flags, exit codes, and the human/JSON output formats |
+| [cli.md](cli.md) | Invocation, `--gdextest-*` flags, exit codes, and the human/JSON output formats |
 | [consumer-guide.md](consumer-guide.md) | How another extension repo integrates gdextest (adapter, entry, fixture, build, CI) |
 | [testing/notes.md](testing/notes.md) | Verified engine facts: headless quit codes, safe hook points, `user://` hermeticity, timing gotchas |
 

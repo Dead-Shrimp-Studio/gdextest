@@ -26,6 +26,8 @@
 build/
 bin/
 
+__pycache__/
+
 # fixture project caches + results
 testdata/project/.godot/
 testdata/results*.json

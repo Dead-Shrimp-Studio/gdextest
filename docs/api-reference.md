@@ -202,6 +202,27 @@ engine: singletons, `ClassDB`, and building real scene-tree structure (`memnew`,
 `add_child`, `remove_child`, `memdelete`). These functions return null for pure
 (non-engine-triggered) invocations, so guard the result before dereferencing.
 
+## Host configuration
+
+Header: `framework/host.h`.
+
+The default adapter uses explicit function pointers instead of weak symbols, so consumer
+startup and shutdown hooks work consistently across GCC, Clang, and MSVC:
+
+```cpp
+namespace gdextest {
+struct HostConfig {
+    void (*bootstrap)() = nullptr;
+    void (*shutdown)() = nullptr;
+};
+void configure_host(const HostConfig &config);
+}
+```
+
+Call `configure_host()` from the consumer extension's initialized startup path. The
+callbacks run on the Godot main thread: `bootstrap` immediately before the test run and
+`shutdown` after reporting. An empty `HostConfig` restores the no-op default.
+
 ## Runner entry points
 
 Header: `framework/runner.h`. Only the engine-boundary headers (`runner.h`, `engine.h`)
@@ -211,7 +232,7 @@ pull in godot-cpp.
 namespace gdextest {
 
 // Called by the host adapter with any Node whose get_tree() yields the live SceneTree.
-// No-op unless triggered (GDX_RUN_TESTS env, or --gdxtest-run in either cmdline list).
+// No-op unless triggered (GDX_RUN_TESTS env, or --gdextest-run in either cmdline list).
 // Exit codes: 0 = all passed, 1 = ≥1 failure, 2 = usage error (malformed/unknown option).
 void run_all_and_quit(void *tree_node);
 

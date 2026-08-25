@@ -1,16 +1,16 @@
 // Minimal GDExtension entry + EditorPlugin shell (test build only).
 // The plugin's _ready() is the M0-verified safe editor hook (plan §3).
-#ifdef GDX_TESTS_ENABLED
+#ifdef GDEXTEST_ENABLED
 
 #include <godot_cpp/classes/editor_plugin.hpp>
 #include <godot_cpp/godot.hpp>
 
-namespace gdx_adapter { void maybe_run(godot::Node *tree_node); }
+namespace gdextest_adapter { void maybe_run(godot::Node *tree_node); }
 
 // The EditorPlugin the fixture project enables. Its _ready() is the safe hook point
 // (autoload under --editor hangs — see docs/testing/notes.md §3.3).
-class GdxTestPlugin : public godot::EditorPlugin {
-    GDCLASS(GdxTestPlugin, godot::EditorPlugin)
+class GdextestPlugin : public godot::EditorPlugin {
+    GDCLASS(GdextestPlugin, godot::EditorPlugin)
 
 protected:
     static void _bind_methods() {}
@@ -18,7 +18,7 @@ protected:
 public:
     void _ready() override {
         godot::Node *self = this;
-        gdx_adapter::maybe_run(self);
+        gdextest_adapter::maybe_run(self);
     }
 };
 
@@ -27,7 +27,7 @@ using namespace godot;
 
 void initialize_test_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_EDITOR) return;
-    ClassDB::register_class<GdxTestPlugin>();
+    ClassDB::register_class<GdextestPlugin>();
 }
 
 void uninitialize_test_module(ModuleInitializationLevel p_level) {
@@ -36,7 +36,7 @@ void uninitialize_test_module(ModuleInitializationLevel p_level) {
 
 extern "C" {
 
-GDExtensionBool GDE_EXPORT gdx_test_library_init(
+GDExtensionBool GDE_EXPORT gdextest_library_init(
         GDExtensionInterfaceGetProcAddress p_get_proc_address,
         const GDExtensionClassLibraryPtr p_library,
         GDExtensionInitialization *r_initialization) {
@@ -52,4 +52,4 @@ GDExtensionBool GDE_EXPORT gdx_test_library_init(
 
 }  // extern "C"
 
-#endif // GDX_TESTS_ENABLED
+#endif // GDEXTEST_ENABLED

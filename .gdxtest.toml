@@ -1,9 +1,0 @@
-[gdxtest]
-godot_version = "4.5"
-fixture_dir = "build/gdxtest/project"
-build_dir = "build/gdxtest"
-out_dir = "bin"
-out_name = "libgdx-test"
-test_sources = ["tests/**/*.cpp"]
-entry_symbol = "gdx_test_library_init"
-project_name = "gdxtest fixture"

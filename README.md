@@ -20,16 +20,16 @@ Prerequisites: `scons`, a C++17 toolchain, and a Godot **4.5** binary (this repo
 
 ```bash
 # one command: build, generate the fixture, and run headless
-GODOT=/path/to/Godot_v4.5-stable_linux.x86_64 ./gdxtest test
+GODOT=/path/to/Godot_v4.5-stable_linux.x86_64 ./gdextest test
 ```
 
-The CLI also supports `./gdxtest init`, `./gdxtest list`, and `./gdxtest clean`.
+The CLI also supports `./gdextest init`, `./gdextest list`, and `./gdextest clean`.
 
 Or step by step:
 
 ```bash
-scons platform=linux target=template_debug tests=true      # builds + generates build/gdxtest/project
-godot --headless --editor --path build/gdxtest/project -- --gdxtest-run
+scons platform=linux target=template_debug tests=true      # builds + generates build/gdextest/project
+godot --headless --editor --path build/gdextest/project -- --gdextest-run
 ```
 
 You'll see a summary like `== gdextest: 19 passed, 0 failed, 1 skipped ==` and the shell
@@ -111,18 +111,18 @@ lists; the options are read from the user list):
 
 | Flag | Effect |
 | --- | --- |
-| `--gdxtest-run` | trigger: run the suites and quit (or `GDX_RUN_TESTS=1` env var) |
-| `--gdxtest-list` | print the selected tests without running (requires a trigger) |
-| `--gdxtest-filter=a.*,-a.slow` | comma-separated globs; `-` prefix excludes (googletest-style) |
-| `--gdxtest-shard=k/n` | run shard k of n (stable hash assignment) |
-| `--gdxtest-shuffle[=seed]` | randomize order (fixed seed = reproducible) |
-| `--gdxtest-json=<path>` | write machine-readable results to a file |
+| `--gdextest-run` | trigger: run the suites and quit (or `GDX_RUN_TESTS=1` env var) |
+| `--gdextest-list` | print the selected tests without running (requires a trigger) |
+| `--gdextest-filter=a.*,-a.slow` | comma-separated globs; `-` prefix excludes (googletest-style) |
+| `--gdextest-shard=k/n` | run shard k of n (stable hash assignment) |
+| `--gdextest-shuffle[=seed]` | randomize order (fixed seed = reproducible) |
+| `--gdextest-json=<path>` | write machine-readable results to a file |
 
 Example:
 
 ```bash
 godot --headless --editor --path testdata/project -- \
-    --gdxtest-run --gdxtest-filter=counter.* --gdxtest-json=results.json
+    --gdextest-run --gdextest-filter=counter.* --gdextest-json=results.json
 ```
 
 ## Using gdextest in your own extension
@@ -142,8 +142,8 @@ build**, and drive them through a tiny per-extension adapter.
    ```python
    lib = env.SConscript(
        "extern/gdextest/SConscript",
-       variant_dir="build/gdxtest", duplicate=0,
-       exports={"env": env, "gdxtest": {
+       variant_dir="build/gdextest", duplicate=0,
+       exports={"env": env, "gdextest": {
            "enabled": env.get("tests", False),
            "suites": Glob("tests/*.cpp"),
        }},
@@ -153,12 +153,12 @@ build**, and drive them through a tiny per-extension adapter.
    ```
 
 4. **Run the generated fixture**: `godot --headless --editor --path
-   build/gdxtest/project -- --gdxtest-run --gdxtest-json=results.json` and map the exit
+   build/gdextest/project -- --gdextest-run --gdextest-json=results.json` and map the exit
    code to your pipeline. No fixture files, manifest, plugin wrapper, or library symlink
    need to be copied into the repository.
 
 5. **Customize only when needed**: provide `entry`, `adapter`, `fixture_dir`,
-   `entry_symbol`, `project_name`, or `native_extensions` in the `gdxtest` exports when
+   `entry_symbol`, `project_name`, or `native_extensions` in the `gdextest` exports when
    the extension needs custom startup or additional native libraries. The default adapter
    is intentionally a no-op bootstrap; extension-specific initialization remains an
    explicit opt-in override.
@@ -172,7 +172,7 @@ build**, and drive them through a tiny per-extension adapter.
 - Suites are registered at static-init time in a pure-C++ registry (`src/framework/`); the
   core has **no Godot types** so it's safe in static initializers.
 - Only the runner (`src/framework/runner.cpp`) touches the engine boundary: it parses the
-  `--gdxtest-*` flags, runs the selected tests synchronously, writes human + JSON output,
+  `--gdextest-*` flags, runs the selected tests synchronously, writes human + JSON output,
   and exits via `SceneTree::quit(code)`.
 - The fixture project loads the test `.so` in **editor mode** (`--headless --editor`); the
   `EditorPlugin::_ready()` hook is the verified safe point to quit from (an autoload hook
@@ -184,11 +184,11 @@ build**, and drive them through a tiny per-extension adapter.
 | Path | Role |
 | --- | --- |
 | `src/framework/` | Pure C++ core: registry, `TestContext`, assertions, tags, runner |
-| `src/gdx_test_entry.cpp` | GDExtension entry + `EditorPlugin` shell (test build only) |
+| `src/gdextest_entry.cpp` | GDExtension entry + `EditorPlugin` shell (test build only) |
 | `src/support/adapter.cpp` | Per-extension adapter — the one file that knows your wiring |
 | `tests/` | Framework self-tests + reference suites |
 | `tools/generate_fixture.py` | Generates the disposable headless Godot fixture |
-| `build/gdxtest/project/` | Generated fixture project (not committed) |
+| `build/gdextest/project/` | Generated fixture project (not committed) |
 | `run_tests.sh` | Build + wire + headless run, one command |
 | `docs/` | Full documentation (architecture, API reference, CLI, consumer guide — see [`docs/README.md`](docs/README.md)) |
 | `.plans/` | Milestone plan |
@@ -196,8 +196,8 @@ build**, and drive them through a tiny per-extension adapter.
 ## Gotchas
 
 - The editor plugin script must `extend EditorPlugin` directly — extending the native
-  `GdxTestPlugin` is rejected by the plugin manager.
+  `GdextestPlugin` is rejected by the plugin manager.
 - The run must be deferred until `EditorFileSystem.is_scanning()` is false, or the editor
   can crash on shutdown (notes.md §5).
-- `--gdxtest-list` alone doesn't trigger a run; pair it with `--gdxtest-run`.
-- Exit code 2 (usage error) is emitted for malformed or unknown `--gdxtest-*` options.
+- `--gdextest-list` alone doesn't trigger a run; pair it with `--gdextest-run`.
+- Exit code 2 (usage error) is emitted for malformed or unknown `--gdextest-*` options.

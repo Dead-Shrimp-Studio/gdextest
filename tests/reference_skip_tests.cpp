@@ -8,7 +8,7 @@
 // This test demonstrates the precondition pattern: the body only has meaning when
 // an optional service is present. Here the stand-in is an environment variable; a
 // real host would instead check whether a service/singleton/fixture is available.
-#if defined(GDX_TESTS_ENABLED)
+#if defined(GDEXTEST_ENABLED)
 
 #include <cstdlib>
 
@@ -24,4 +24,4 @@ GDX_TEST(skip_demo, requires_optional_benchmark_service) {
     GDX_EXPECT_TRUE(true);
 }
 
-#endif // GDX_TESTS_ENABLED
+#endif // GDEXTEST_ENABLED

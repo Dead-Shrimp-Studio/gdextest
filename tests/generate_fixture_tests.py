@@ -3,13 +3,15 @@
 
 from pathlib import Path
 import importlib.util
+import sys
 import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
-    "gdxtest_fixture_generator", ROOT / "tools" / "generate_fixture.py")
+    "gdextest_fixture_generator", ROOT / "tools" / "generate_fixture.py")
 MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules["gdextest_fixture_generator"] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
@@ -26,11 +28,11 @@ def test_generated_manifest_is_referenced() -> None:
             entry_symbol="custom_init",
         )
         project = (root / "project" / "project.godot").read_text()
-        manifest = (root / "project" / "addons" / "gdxtest" /
+        manifest = (root / "project" / "addons" / "gdextest" /
                     "custom-test.gdextension").read_text()
-        staged = (root / "project" / "addons" / "gdxtest" / "bin" /
+        staged = (root / "project" / "addons" / "gdextest" / "bin" /
                   "libtest.so")
-        assert 'res://addons/gdxtest/custom-test.gdextension' in project
+        assert 'res://addons/gdextest/custom-test.gdextension' in project
         assert 'entry_symbol = "custom_init"' in manifest
         assert staged.read_bytes() == b"test-library"
 
@@ -44,12 +46,13 @@ def test_generated_plugin_uses_scan_safe_host() -> None:
             project_root=root / "project",
             library_path=source,
             library_basename="libtest.so",
-            manifest_basename="gdxtest.gdextension",
+            manifest_basename="gdextest.gdextension",
         )
-        plugin = (root / "project" / "addons" / "gdxtest" / "plugin.gd").read_text()
+        plugin = (root / "project" / "addons" / "gdextest" / "plugin.gd").read_text()
         assert "EditorInterface.get_resource_filesystem()" in plugin
         assert "is_scanning()" in plugin
-        assert "GdxTestPlugin.new()" in plugin
+        assert "GdextestPlugin.new()" in plugin
+        assert "did not finish before timeout" in plugin
 
 
 if __name__ == "__main__":

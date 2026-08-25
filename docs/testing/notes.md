@@ -54,10 +54,10 @@ exposes a helper that sets the env var for the process and restores it.
 
 ### 3.2 Trigger detection must check both arg lists
 
-`--gdxtest-run` placed **before** `--` lands in `OS::get_cmdline_args()` (engine args); tokens
+`--gdextest-run` placed **before** `--` lands in `OS::get_cmdline_args()` (engine args); tokens
 **after** `--` land in `OS::get_cmdline_user_args()`. The plan's trigger detection only mentioned
-user args. **Fix:** the adapter checks `has_environment("GDX_RUN_TESTS") || get_cmdline_args().has("--gdxtest-run") || get_cmdline_user_args().has("--gdxtest-run")`. (The `--gdxtest-*` option flags
-like `--gdxtest-filter=…` are passed after `--` so they arrive as user args, where the parser
+user args. **Fix:** the adapter checks `has_environment("GDX_RUN_TESTS") || get_cmdline_args().has("--gdextest-run") || get_cmdline_user_args().has("--gdextest-run")`. (The `--gdextest-*` option flags
+like `--gdextest-filter=…` are passed after `--` so they arrive as user args, where the parser
 reads them.)
 
 ### 3.3 Editor mode hooks the runner from `EditorPlugin::_ready()`, never an autoload
@@ -85,7 +85,7 @@ not captured by the M0 spike:
   `first_scan_filesystem`; the scan thread only starts at the "Starting file scan" step.
 - Quitting from that early point races the scan thread: it usually exits 0, but intermittently
   the editor crashed on shutdown (SIGSEGV, exit 134) with "Scan thread aborted".
-- **Fix (in `testdata/project/addons/gdxtest/plugin.gd`):** defer the run until
+- **Fix (in `testdata/project/addons/gdextest/plugin.gd`):** defer the run until
   `EditorFileSystem.is_scanning()` is false (poll on `SceneTree.process_frame`, 20 s timeout),
   then instantiate the native plugin. With that, the sequence is deterministic:
   `first_scan_filesystem DONE → loading_editor_layout DONE → gdextest runs → quit(code)`, no

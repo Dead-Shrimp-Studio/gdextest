@@ -26,7 +26,7 @@ public:
 
     // Throw to abort the current test only (caught inside the runner's frame —
     // never crosses an engine callback boundary; plan §5.2). Throws only when
-    // GDX_TESTS_ENABLED is active; otherwise a no-op.
+    // GDEXTEST_ENABLED is active; otherwise a no-op.
     [[noreturn]] static void abort_test(const char *file, int line, std::string message);
 
     // Mark the current test as skipped for a runtime reason (timing, missing

@@ -5,7 +5,7 @@
 // framework/engine.h). They run only when the suite is invoked through the
 // engine trigger (the fixture's EditorPlugin), where the runner attaches the
 // live tree node to each test's context.
-#ifdef GDX_TESTS_ENABLED
+#ifdef GDEXTEST_ENABLED
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/os.hpp>
@@ -41,13 +41,13 @@ GDX_TEST_T(engine, can_create_and_destroy_node, TAG_INTEGRATION) {
     GDX_EXPECT_NOT_NULL(static_cast<void *>(root));
 
     godot::Node *child = memnew(godot::Node);
-    child->set_name("gdxtest-temp");
+    child->set_name("gdextest-temp");
     root->add_child(child);
     GDX_EXPECT(child->get_parent() == static_cast<godot::Node *>(root));
-    GDX_EXPECT(child->get_name() == godot::StringName("gdxtest-temp"));
+    GDX_EXPECT(child->get_name() == godot::StringName("gdextest-temp"));
 
     root->remove_child(child);
     memdelete(child);
 }
 
-#endif // GDX_TESTS_ENABLED
+#endif // GDEXTEST_ENABLED

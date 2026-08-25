@@ -1,8 +1,0 @@
-[configuration]
-
-entry_symbol = "gdx_test_library_init"
-compatibility_minimum = "4.5"
-
-[libraries]
-
-linux.debug.x86_64 = "res://addons/gdxtest/bin/libgdx-test.linux.template_debug.x86_64.so"

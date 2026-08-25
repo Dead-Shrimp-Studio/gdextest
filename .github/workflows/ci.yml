@@ -29,11 +29,11 @@ jobs:
       - name: Run tests headless
         run: |
           set -euo pipefail
-          GODOT="$GITHUB_WORKSPACE/Godot_v4.5-stable_linux.x86_64" ./gdxtest test
+          GODOT="$GITHUB_WORKSPACE/Godot_v4.5-stable_linux.x86_64" ./gdextest test
 
       - name: Upload results JSON
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gdxtest-results
+          name: gdextest-results
           path: testdata/results.json

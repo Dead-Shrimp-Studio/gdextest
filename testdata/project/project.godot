@@ -12,8 +12,8 @@ config/features=PackedStringArray("4.5")
 
 [native_extensions]
 
-paths=["res://addons/gdxtest/libgdxtest.gdextension"]
+paths=["res://addons/gdextest/libgdextest.gdextension"]
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/gdxtest/plugin.cfg")
+enabled=PackedStringArray("res://addons/gdextest/plugin.cfg")

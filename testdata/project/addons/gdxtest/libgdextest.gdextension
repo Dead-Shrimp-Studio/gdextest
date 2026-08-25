@@ -1,0 +1,8 @@
+[configuration]
+
+entry_symbol = "gdextest_library_init"
+compatibility_minimum = "4.5"
+
+[libraries]
+
+linux.debug.x86_64 = "res://addons/gdextest/bin/libgdextest.linux.template_debug.x86_64.so"

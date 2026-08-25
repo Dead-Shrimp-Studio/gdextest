@@ -1,7 +1,7 @@
 @tool
 extends EditorPlugin
 # Editor plugin manager requires the plugin script to extend EditorPlugin
-# directly (extending the native GdxTestPlugin is rejected). This thin wrapper
+# directly (extending the native GdextestPlugin is rejected). This thin wrapper
 # instantiates the native plugin (registered in ClassDB by the extension) as a
 # child; its C++ _ready() calls the adapter, which runs the suites and quits.
 #
@@ -24,7 +24,7 @@ func _on_frame() -> void:
     if fs.is_scanning() and Time.get_ticks_msec() - _start_ms < SCAN_TIMEOUT_MS:
         return  # initial scan still running — keep waiting
     get_tree().process_frame.disconnect(_on_frame)
-    test_plugin = GdxTestPlugin.new()
+    test_plugin = GdextestPlugin.new()
     add_child(test_plugin)
 
 func _exit_tree() -> void:

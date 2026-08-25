@@ -13,7 +13,7 @@ from SCons.Script import Variables, EnumVariable, BoolVariable, Alias, ARGUMENTS
 
 _tools_dir = Path(Dir("#").abspath) / "tools"
 sys.path.insert(0, str(_tools_dir))
-from gdxtest_config import load_config
+from gdextest_config import load_config
 
 opts = Variables(None)
 opts.Add(EnumVariable("platform", "target platform", "linux",
@@ -57,12 +57,12 @@ if env["coverage"]:
 # reference host only declares its output name; suites use convention discovery.
 lib = env.SConscript(
     "SConscript",
-    variant_dir="build/gdxtest",
+    variant_dir="build/gdextest",
     duplicate=0,
-    exports={"env": env, "gdxtest": {
+    exports={"env": env, "gdextest": {
         "enabled": env["tests"],
         "suites": None,
-        "out_name": "libgdx-test",
+        "out_name": "libgdextest",
     }},
 )
 if lib:
@@ -70,8 +70,8 @@ if lib:
 
 # `scons test` remains useful for SCons-native users. The CLI owns the Godot
 # invocation because it can validate the executable and provide consistent flags.
-def _run_gdxtest(target, source, env):
-    command = [sys.executable, str(_tools_dir / "gdxtest.py"), "test"]
+def _run_gdextest(target, source, env):
+    command = [sys.executable, str(_tools_dir / "gdextest.py"), "test"]
     return env.Execute(" ".join(command))
 
-Alias("test", lib, _run_gdxtest)
+Alias("test", lib, _run_gdextest)
