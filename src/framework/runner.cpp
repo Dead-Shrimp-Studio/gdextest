@@ -136,6 +136,68 @@ void write_human(const std::vector<TestResult> &results) {
     }
 }
 
+// JSON-escape a string per RFC 8259: quotes, backslashes, and control characters.
+std::string esc_json(const std::string &s) {
+    std::string out;
+    out.reserve(s.size() + 4);
+    for (char c : s) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buffer[8];
+                    std::snprintf(buffer, sizeof buffer, "\\u%04x", c);
+                    out += buffer;
+                } else {
+                    out += c;
+                }
+        }
+    }
+    return out;
+}
+
+// Machine-readable results per docs/cli.md. A crashed test also counts toward
+// `fail`; a skipped test carries an optional `reason` and never counts as fail.
+void write_json(const std::string &path, const std::vector<TestResult> &results) {
+    std::FILE *fp = std::fopen(path.c_str(), "wb");
+    if (!fp) return;
+    int pass = 0, fail = 0, skip = 0, crashed = 0;
+    for (const auto &result : results) {
+        if (result.crashed) { ++crashed; ++fail; }
+        else if (result.failure_count != 0) ++fail;
+        else if (result.skipped) ++skip;
+        else ++pass;
+    }
+    std::fprintf(fp, "{\"totals\":{\"pass\":%d,\"fail\":%d,\"skip\":%d,\"crashed\":%d},\"results\":[",
+                 pass, fail, skip, crashed);
+    for (size_t i = 0; i < results.size(); ++i) {
+        const TestResult &result = results[i];
+        const char *status = result.crashed ? "crashed"
+                           : result.failure_count != 0 ? "fail"
+                           : result.skipped ? "skipped" : "pass";
+        std::fprintf(fp, "%s{\"suite\":\"%s\",\"name\":\"%s\",\"status\":\"%s\"",
+                     i ? "," : "", esc_json(result.test_case->suite).c_str(),
+                     esc_json(result.test_case->name).c_str(), status);
+        if (result.skipped && !result.skip_reason.empty()) {
+            std::fprintf(fp, ",\"reason\":\"%s\"", esc_json(result.skip_reason).c_str());
+        }
+        std::fprintf(fp, ",\"duration_ms\":%ld,\"failures\":[", result.duration_ms);
+        for (size_t j = 0; j < result.failures.size(); ++j) {
+            const Failure &failure = result.failures[j];
+            std::fprintf(fp, "%s{\"file\":\"%s\",\"line\":%d,\"message\":\"%s\"}",
+                         j ? "," : "", esc_json(failure.file).c_str(), failure.line,
+                         esc_json(failure.message).c_str());
+        }
+        std::fprintf(fp, "]}");
+    }
+    std::fprintf(fp, "]}");
+    std::fclose(fp);
+}
+
 TestResult run_one(const TestCase &test_case, void *engine_node) {
     TestResult result;
     result.test_case = &test_case;
@@ -180,6 +242,25 @@ int run_sub_and_count_failures(void (*body)(TestContext &)) {
     return context.failure_count();
 }
 
+int run_sub_and_write_json(void (*body)(TestContext &), const char *path) {
+    TestContext context;
+    g_active_ctx = &context;
+    try { body(context); } catch (...) {}
+    g_active_ctx = nullptr;
+    // Synthetic case so the JSON document has a suite/name; the self-tests only
+    // assert on status/totals/failures/reason, not on these identifiers.
+    static const TestCase sub_case{"self", "json_sub", nullptr, TAG_UNIT, "", 0};
+    TestResult result;
+    result.test_case = &sub_case;
+    result.failure_count = context.failure_count();
+    result.failures = context.failures();
+    result.skipped = context.skipped();
+    result.skip_reason = context.skip_reason();
+    const std::vector<TestResult> results{result};
+    write_json(path, results);
+    return result.failure_count;
+}
+
 void run_all_and_quit(void *tree_node) {
     Options options;
     try { options = parse_from_godot(); }
@@ -203,10 +284,7 @@ void run_all_and_quit(void *tree_node) {
     results.reserve(selected.size());
     for (const auto *test_case : selected) results.push_back(run_one(*test_case, tree_node));
     write_human(results);
-    if (!options.json_path.empty()) {
-        // JSON output implementation remains in the existing runner contract.
-        // Human output and exit semantics are unchanged for this API migration.
-    }
+    if (!options.json_path.empty()) write_json(options.json_path, results);
     gdextest::shutdown_host();
     bool failed = false;
     for (const auto &result : results) failed = failed || result.crashed || result.failure_count != 0;

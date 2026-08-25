@@ -30,7 +30,6 @@ func _on_frame() -> void:
 func _exit_tree() -> void:
     if get_tree() and get_tree().process_frame.is_connected(_on_frame):
         get_tree().process_frame.disconnect(_on_frame)
-    if test_plugin:
-        remove_child(test_plugin)
-        test_plugin.queue_free()
-        test_plugin = null
+    # The native plugin owns the test run and requests process shutdown. Do not
+    # remove it during editor teardown; Godot owns plugin lifetime here (removing
+    # it races the scan thread and can crash the editor on shutdown).

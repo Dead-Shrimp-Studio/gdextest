@@ -3,6 +3,9 @@
 #ifdef GDEXTEST_ENABLED
 
 #include <algorithm>
+#include <cstdio>   // std::remove
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -10,6 +13,17 @@
 #include "framework/registry.h"
 #include "framework/host.h"
 #include "framework/runner.h"
+
+namespace {
+// Read a file written by run_sub_and_write_json (paths resolve against the
+// runner's cwd).
+std::string read_file(const char *path) {
+    std::ifstream in(path, std::ios::binary);
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
+}
+}
 
 namespace {
 bool bootstrap_called = false;
@@ -134,6 +148,69 @@ GDX_TEST(self, skip_stops_body_and_is_not_a_failure) {
     });
     GDX_EXPECT_EQ(n, 0);                  // a skip is not a failure
     GDX_EXPECT_FALSE(reached_after_skip); // the body stopped at the skip
+}
+
+// --- JSON output: the writer must emit the documented schema ---------------
+// Each test runs a body through run_sub_and_write_json, reads the file back,
+// and asserts on the raw JSON text. Paths resolve against the runner's cwd (the
+// disposable fixture dir), so leftover files are harmless build output.
+
+GDX_TEST(self, json_reports_failing_test_with_failure_details) {
+    const char *path = "gdextest_self_json_fail.json";
+    int n = gdextest::run_sub_and_write_json([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        GDX_EXPECT_EQ(1, 2);   // deliberately false
+    }, path);
+    GDX_EXPECT_EQ(n, 1);
+    const std::string json = read_file(path);
+    std::remove(path);
+    GDX_EXPECT_STR_CONTAINS(json, "\"totals\":{\"pass\":0,\"fail\":1,\"skip\":0,\"crashed\":0}");
+    GDX_EXPECT_STR_CONTAINS(json, "\"status\":\"fail\"");
+    GDX_EXPECT_STR_CONTAINS(json, "\"failures\":[{\"file\":");
+    GDX_EXPECT_STR_CONTAINS(json, "\"line\":");
+    GDX_EXPECT_STR_CONTAINS(json, "\"message\":\"expected 1 == 2");
+    GDX_EXPECT_STR_CONTAINS(json, "\\n  expected: 1");  // multi-line message, JSON-escaped
+}
+
+GDX_TEST(self, json_reports_passing_test_as_pass) {
+    const char *path = "gdextest_self_json_pass.json";
+    int n = gdextest::run_sub_and_write_json([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        GDX_EXPECT_EQ(2, 2);
+    }, path);
+    GDX_EXPECT_EQ(n, 0);
+    const std::string json = read_file(path);
+    std::remove(path);
+    GDX_EXPECT_STR_CONTAINS(json, "\"totals\":{\"pass\":1,\"fail\":0,\"skip\":0,\"crashed\":0}");
+    GDX_EXPECT_STR_CONTAINS(json, "\"status\":\"pass\"");
+    GDX_EXPECT_STR_CONTAINS(json, "\"failures\":[]");
+}
+
+GDX_TEST(self, json_reports_skipped_test_with_reason) {
+    const char *path = "gdextest_self_json_skip.json";
+    int n = gdextest::run_sub_and_write_json([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        GDX_SKIP("optional service missing");
+    }, path);
+    GDX_EXPECT_EQ(n, 0);
+    const std::string json = read_file(path);
+    std::remove(path);
+    GDX_EXPECT_STR_CONTAINS(json, "\"totals\":{\"pass\":0,\"fail\":0,\"skip\":1,\"crashed\":0}");
+    GDX_EXPECT_STR_CONTAINS(json, "\"status\":\"skipped\"");
+    GDX_EXPECT_STR_CONTAINS(json, "\"reason\":\"optional service missing\"");
+}
+
+GDX_TEST(self, json_escapes_quotes_and_newlines_in_messages) {
+    const char *path = "gdextest_self_json_escape.json";
+    int n = gdextest::run_sub_and_write_json([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        GDX_FAIL("say \"hi\"\nnext line");
+    }, path);
+    GDX_EXPECT_EQ(n, 1);
+    const std::string json = read_file(path);
+    std::remove(path);
+    // The raw message must appear escaped: \" for the quote, \n for the newline.
+    GDX_EXPECT_STR_CONTAINS(json, "say \\\"hi\\\"\\nnext line");
 }
 
 #endif // GDEXTEST_ENABLED

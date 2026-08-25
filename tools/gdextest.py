@@ -188,7 +188,9 @@ def cmd_test(args: argparse.Namespace) -> int:
         user_args.append("--gdextest-shuffle" if args.shuffle == "" else
                          f"--gdextest-shuffle={args.shuffle}")
     if args.json:
-        user_args.append(f"--gdextest-json={args.json}")
+        # Godot chdirs to the fixture dir (--path), so a relative path would resolve
+        # against the fixture, not the user's cwd. Resolve it up front.
+        user_args.append(f"--gdextest-json={os.path.abspath(args.json)}")
     return subprocess.run(_godot_command(config, executable, *user_args),
                           cwd=config.project_root, env=_run_environment(config)).returncode
 

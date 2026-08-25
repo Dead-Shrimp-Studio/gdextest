@@ -10,7 +10,6 @@ filtering/sharding.
 > **Status:** Milestone A is complete: the framework core, portable `HostConfig`, reference
 > fixture, headless execution, reusable consumer [`SConscript`](SConscript), structured
 > configuration, diagnostics, and external-consumer flow are working on Godot 4.5.
-> Roadmap: [`.plans/gdextension-testing-framework.md`](.plans/gdextension-testing-framework.md).
 
 ---
 
@@ -33,7 +32,7 @@ scons platform=linux target=template_debug tests=true      # builds + generates 
 godot --headless --editor --path build/gdextest/project -- --gdextest-run
 ```
 
-You'll see a summary like `== gdextest: 19 passed, 0 failed, 1 skipped ==` and the shell
+You'll see a summary like `== gdextest: 25 passed, 0 failed, 1 skipped ==` and the shell
 exit code tells you the result: **0** = all passed (skips do not fail the run),
 **1** = ≥1 failure, **2** = usage error.
 
@@ -191,7 +190,6 @@ build**, and drive them through a tiny per-extension adapter.
 | `build/gdextest/project/` | Generated fixture project (not committed) |
 | `run_tests.sh` | Build + wire + headless run, one command |
 | `docs/` | Full documentation (architecture, API reference, CLI, consumer guide — see [`docs/README.md`](docs/README.md)) |
-| `.plans/` | Milestone plan |
 
 ## Gotchas
 

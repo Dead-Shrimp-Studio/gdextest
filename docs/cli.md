@@ -49,7 +49,7 @@ printed to stdout before exiting.
 ## Human output
 
 ```text
-== gdextest: 19 passed, 0 failed, 1 skipped ==
+== gdextest: 25 passed, 0 failed, 1 skipped ==
 [PASS] self.filter_positive_glob_matches  (0 ms)
 [PASS] string_utils.trim_strips_both_ends  (0 ms)
 [FAIL] counter.bump_increments  (0 ms)

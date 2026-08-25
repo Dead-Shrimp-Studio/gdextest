@@ -22,7 +22,7 @@ wants.
 
 Working and verified on Godot **4.5** (Linux x86_64): framework core, sync runner, human +
 JSON reporting, filtering/sharding/shuffling, usage-error exit code 2, live-engine
-integration tests, the reference fixture, headless execution (18 self + reference +
+integration tests, the reference fixture, headless execution (26 self + reference +
 integration tests green, exit 0), and the reusable consumer `SConscript` wiring (this
 repo's `SConstruct` is the reference consumer of it). Not yet built: async/multi-frame
 tests and object leak/UAF tracking (stubs only). See
