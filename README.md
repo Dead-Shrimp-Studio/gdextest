@@ -30,8 +30,9 @@ scons platform=linux target=template_debug tests=true      # -> bin/libgdx-test.
 godot --headless --editor --path testdata/project -- --gdxtest-run
 ```
 
-You'll see a summary like `== gdextest: 18 passed, 0 failed ==` and the shell exit code
-tells you the result: **0** = all passed, **1** = ≥1 failure, **2** = usage error.
+You'll see a summary like `== gdextest: 19 passed, 0 failed, 1 skipped ==` and the shell
+exit code tells you the result: **0** = all passed (skips do not fail the run),
+**1** = ≥1 failure, **2** = usage error.
 
 ## Writing tests
 
@@ -65,6 +66,7 @@ failing check:
 | `GDX_EXPECT_STR_EQ(a, b)`, `GDX_EXPECT_STR_CONTAINS(h, n)` | string comparisons |
 | `GDX_EXPECT_NULL(p)`, `GDX_EXPECT_NOT_NULL(p)` | pointer checks |
 | `GDX_FAIL(msg)`, `GDX_ABORT_TEST(msg)` | unconditional failure / abort the test |
+| `GDX_SKIP(msg)` | record the test as skipped for a runtime reason and stop the body |
 
 `GDX_TEST_T(suite, name, tags)` registers with tags (`TAG_UNIT`, `TAG_INTEGRATION`,
 `TAG_SLOW`, `TAG_FLAKY`, … — see `src/framework/config.h`). Tag names resolve bare, so write

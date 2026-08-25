@@ -29,6 +29,16 @@ public:
     // GDX_TESTS_ENABLED is active; otherwise a no-op.
     [[noreturn]] static void abort_test(const char *file, int line, std::string message);
 
+    // Mark the current test as skipped for a runtime reason (timing, missing
+    // fixture/service, unmet precondition) and stop the body. A skipped test never
+    // counts as a pass or a failure; it appears in the human/JSON `skip` totals.
+    // Implemented like abort_test: records on the active context, then throws a
+    // private exception type caught inside the runner's own frame.
+    [[noreturn]] static void skip(const char *file, int line, std::string reason);
+
+    bool skipped() const { return skipped_; }
+    const std::string &skip_reason() const { return skip_reason_; }
+
     // Live engine access for integration tests. The handle is opaque here so the
     // core stays free of Godot types; engine-boundary accessors live in
     // framework/engine.h and cast this handle to the real Node/SceneTree.
@@ -38,6 +48,8 @@ public:
 
 private:
     std::vector<Failure> failures_;
+    bool skipped_ = false;
+    std::string skip_reason_;
 
     // Live engine host (the tree node handed to run_all_and_quit), or null for
     // self/sub invocations.

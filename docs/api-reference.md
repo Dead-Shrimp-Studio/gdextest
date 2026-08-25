@@ -112,9 +112,23 @@ Header: `framework/assert.h`. Every macro records a failure on the in-scope `ctx
 | `GDX_EXPECT_NOT_NULL(p)` | `p != nullptr` | the expression text |
 | `GDX_FAIL(msg)` | never | `msg` |
 | `GDX_ABORT_TEST(msg)` | never — records `"ABORT: " + msg` then throws | the message |
+| `GDX_SKIP(msg)` | — (skips, never a pass or failure) | the reason `msg` |
 
 `GDX_ABORT_TEST` throws a private `TestAborted` type caught inside the runner's frame; it
 marks the test as crashed. It never propagates out of the framework.
+
+`GDX_SKIP(msg)` throws a private `TestSkipped` type (also caught inside the runner's
+frame). It records the test as **skipped** with reason `msg` and stops the body — control
+never continues past the call. A skipped test counts in the `skip` totals, not in
+`pass`/`fail`, and does not change the exit code. It is meant for runtime preconditions
+(missing fixture/service, timing, platform), e.g.:
+
+```cpp
+GDX_TEST(feature, needs_optional_service) {
+    if (!service_available()) GDX_SKIP("optional service not present");
+    // ... test logic ...
+}
+```
 
 ### Value formatting (`stringify<T>`)
 
@@ -146,6 +160,10 @@ public:
     int failure_count() const;
     const std::vector<Failure> &failures() const;
     [[noreturn]] static void abort_test(const char *file, int line, std::string message);
+    [[noreturn]] static void skip(const char *file, int line, std::string reason);
+
+    bool skipped() const;                       // true after GDX_SKIP
+    const std::string &skip_reason() const;     // the reason passed to GDX_SKIP
 
     void set_engine(void *engine);       // set by the runner in engine-triggered runs
     void *engine_handle() const;         // opaque live-engine host, or null

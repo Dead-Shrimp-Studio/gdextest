@@ -92,4 +92,19 @@ GDX_TEST(self, passing_assertions_record_no_failures) {
     GDX_EXPECT_EQ(n, 0);
 }
 
+// --- skipping: GDX_SKIP stops the body and is not a failure -----------------
+GDX_TEST(self, skip_stops_body_and_is_not_a_failure) {
+    // A static local needs no capture, so the lambda below stays a plain function
+    // pointer (run_sub_and_count_failures takes void(*)(TestContext&)).
+    static bool reached_after_skip = false;
+    reached_after_skip = false;
+    int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        GDX_SKIP("precondition not met");
+        reached_after_skip = true;   // must never run
+    });
+    GDX_EXPECT_EQ(n, 0);                  // a skip is not a failure
+    GDX_EXPECT_FALSE(reached_after_skip); // the body stopped at the skip
+}
+
 #endif // GDX_TESTS_ENABLED

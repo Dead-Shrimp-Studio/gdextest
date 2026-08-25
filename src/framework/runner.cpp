@@ -21,6 +21,10 @@ namespace {
 
 struct TestAborted {};
 
+// Thrown by TestContext::skip; caught inside the runner's own frame (same
+// lifecycle as TestAborted) so the rest of the skipped body does not run.
+struct TestSkipped {};
+
 // Raised by flag parsing on malformed/unknown --gdxtest-* input; the runner
 // catches it and quits with the reserved usage-error code 2.
 struct UsageError {
@@ -39,6 +43,15 @@ static TestContext *g_active_ctx = nullptr;
         g_active_ctx->fail(file, line, "ABORT: " + message);
     }
     throw TestAborted{};
+}
+
+[[noreturn]] void TestContext::skip(const char *file, int line, std::string reason) {
+    (void)file; (void)line;   // the reason is the user-visible payload for a skip
+    if (g_active_ctx) {
+        g_active_ctx->skipped_ = true;
+        g_active_ctx->skip_reason_ = std::move(reason);
+    }
+    throw TestSkipped{};
 }
 
 namespace {
@@ -163,6 +176,8 @@ struct TestResult {
     int failure_count = 0;
     std::vector<Failure> failures;
     bool crashed = false;     // body threw TestAborted or threw otherwise
+    bool skipped = false;     // body called GDX_SKIP (recorded, not pass/fail)
+    std::string skip_reason;
     long duration_ms = 0;
 };
 
@@ -189,16 +204,24 @@ static std::string esc_json(const std::string &s) {
 }
 
 static void write_human(const std::vector<TestResult> &results) {
-    int passed = 0, failed = 0;
+    int passed = 0, failed = 0, skipped = 0;
     for (const auto &r : results) {
-        if (r.failure_count == 0 && !r.crashed) ++passed; else ++failed;
+        if (r.crashed || r.failure_count != 0) ++failed;
+        else if (r.skipped) ++skipped;
+        else ++passed;
     }
-    std::printf("\n== gdextest: %d passed, %d failed ==\n", passed, failed);
+    std::printf("\n== gdextest: %d passed, %d failed, %d skipped ==\n", passed, failed, skipped);
     for (const auto &r : results) {
-        const char *status = (r.failure_count == 0 && !r.crashed) ? "PASS" : "FAIL";
+        const char *status;
+        if (r.crashed || r.failure_count != 0) status = "FAIL";
+        else if (r.skipped) status = "SKIP";
+        else status = "PASS";
         std::printf("[%s] %s.%s  (%ld ms)\n", status, r.tc->suite, r.tc->name, r.duration_ms);
         for (const auto &f : r.failures) {
             std::printf("    %s:%d: %s\n", f.file.c_str(), f.line, f.message.c_str());
+        }
+        if (r.skipped) {
+            std::printf("    skipped: %s\n", r.skip_reason.c_str());
         }
         if (r.crashed && r.failure_count == 0) {
             std::printf("    (test body aborted/crashed)\n");
@@ -212,17 +235,26 @@ static void write_json(const std::string &path, const std::vector<TestResult> &r
     int pass = 0, fail = 0, skip = 0, crashed = 0;
     for (const auto &r : results) {
         if (r.crashed) { ++crashed; ++fail; }
-        else if (r.failure_count == 0) ++pass; else ++fail;
+        else if (r.failure_count != 0) ++fail;
+        else if (r.skipped) ++skip;
+        else ++pass;
     }
     std::fprintf(fp, "{\"totals\":{\"pass\":%d,\"fail\":%d,\"skip\":%d,\"crashed\":%d},\"results\":[",
                  pass, fail, skip, crashed);
     for (size_t i = 0; i < results.size(); ++i) {
         const auto &r = *results[i].tc;
-        std::string status = results[i].crashed ? "crashed"
-                          : (results[i].failure_count == 0 ? "pass" : "fail");
-        std::fprintf(fp, "%s{\"suite\":\"%s\",\"name\":\"%s\",\"status\":\"%s\",\"duration_ms\":%ld,\"failures\":[",
+        std::string status;
+        if (results[i].crashed) status = "crashed";
+        else if (results[i].failure_count != 0) status = "fail";
+        else if (results[i].skipped) status = "skipped";
+        else status = "pass";
+        std::fprintf(fp, "%s{\"suite\":\"%s\",\"name\":\"%s\",\"status\":\"%s\"",
                      i ? "," : "", esc_json(r.suite).c_str(), esc_json(r.name).c_str(),
-                     status.c_str(), results[i].duration_ms);
+                     status.c_str());
+        if (results[i].skipped) {
+            std::fprintf(fp, ",\"reason\":\"%s\"", esc_json(results[i].skip_reason).c_str());
+        }
+        std::fprintf(fp, ",\"duration_ms\":%ld,\"failures\":[", results[i].duration_ms);
         for (size_t j = 0; j < results[i].failures.size(); ++j) {
             const Failure &f = results[i].failures[j];
             std::fprintf(fp, "%s{\"file\":\"%s\",\"line\":%d,\"message\":\"%s\"}",
@@ -246,6 +278,8 @@ static TestResult run_one(const TestCase &tc, void *engine_node) {
         tc.fn(ctx);          // runner-injected ctx (chosen ctx-access model, plan §5.2)
     } catch (const TestAborted &) {
         r.crashed = true;
+    } catch (const TestSkipped &) {
+        r.skipped = true;    // recorded on ctx; not a pass and not a failure
     } catch (...) {
         r.crashed = true;
     }
@@ -254,6 +288,8 @@ static TestResult run_one(const TestCase &tc, void *engine_node) {
     r.duration_ms = (t1 - t0) * 1000 / CLOCKS_PER_SEC;
     r.failure_count = ctx.failure_count();
     r.failures = ctx.failures();
+    r.skipped = r.skipped || ctx.skipped();
+    r.skip_reason = ctx.skip_reason();
     return r;
 }
 

@@ -87,3 +87,9 @@ inline std::string fmt_cmp(const char *op, const char *aexpr, const char *bexpr,
 #define GDX_FAIL(msg) do { GDX_RECORD_(std::string(msg)); } while (0)
 #define GDX_ABORT_TEST(msg) \
     ::gdextest::TestContext::abort_test(__FILE__, __LINE__, (msg))
+
+// Skips the current test for a runtime reason and stops the body. The test is
+// recorded in the `skip` totals (not pass/fail) with the given reason. Usually
+// called from an early guard when a precondition/fixture/service is unavailable.
+#define GDX_SKIP(msg) \
+    ::gdextest::TestContext::skip(__FILE__, __LINE__, (msg))

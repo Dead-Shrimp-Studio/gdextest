@@ -48,8 +48,8 @@ printed to stdout before exiting.
 
 ## Human output
 
-```
-== gdextest: 15 passed, 0 failed ==
+```text
+== gdextest: 19 passed, 0 failed, 1 skipped ==
 [PASS] self.filter_positive_glob_matches  (0 ms)
 [PASS] string_utils.trim_strips_both_ends  (0 ms)
 [FAIL] counter.bump_increments  (0 ms)
@@ -57,7 +57,13 @@ printed to stdout before exiting.
         expected: 1
         actual:   2
     (test body aborted/crashed)          # only if the body threw/aborted
+[SKIP] skip_demo.requires_optional_benchmark_service  (0 ms)
+    skipped: precondition not met: GDX_BENCHMARK_SERVICE is unset
 ```
+
+The summary line always shows the `skipped` count. A row is `[SKIP]` (with its reason)
+when the body called `GDX_SKIP`. Skipped tests never count toward `failed` and never
+change the exit code.
 
 `--gdxtest-list` prints:
 
@@ -74,16 +80,24 @@ Written by `--gdxtest-json=<path>`. Schema:
 
 ```json
 {
-  "totals": { "pass": 15, "fail": 0, "skip": 0, "crashed": 0 },
+  "totals": { "pass": 19, "fail": 0, "skip": 1, "crashed": 0 },
   "results": [
     {
       "suite": "counter",
       "name": "bump_increments",
-      "status": "pass",              // "pass" | "fail" | "crashed"
+      "status": "fail",              // "pass" | "fail" | "crashed" | "skipped"
       "duration_ms": 0,
       "failures": [
         { "file": "tests/counter_state_tests.cpp", "line": 12, "message": "…" }
       ]
+    },
+    {
+      "suite": "skip_demo",
+      "name": "requires_optional_benchmark_service",
+      "status": "skipped",
+      "reason": "precondition not met: GDX_BENCHMARK_SERVICE is unset",
+      "duration_ms": 0,
+      "failures": []
     }
   ]
 }
@@ -91,7 +105,9 @@ Written by `--gdxtest-json=<path>`. Schema:
 
 - `status` is `"crashed"` when the body threw (including `GDX_ABORT_TEST`) or the run was
   otherwise interrupted; a crashed test also counts toward `fail`.
-- `skip` is always 0 in the current milestone (skipping is not implemented yet).
+- `status` is `"skipped"` when the body called `GDX_SKIP`; the optional `reason` field
+  carries the skip message. A skipped test counts toward `totals.skip`, never `fail`.
+- `totals.skip` is the number of tests skipped via `GDX_SKIP` (0 when none).
 - Strings are JSON-escaped; control characters become `\uXXXX`.
 
 ## Examples
