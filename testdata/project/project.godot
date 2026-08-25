@@ -12,7 +12,7 @@ config/features=PackedStringArray("4.5")
 
 [native_extensions]
 
-paths=["res://libgdxtest.gdextension"]
+paths=["res://addons/gdxtest/libgdxtest.gdextension"]
 
 [editor_plugins]
 

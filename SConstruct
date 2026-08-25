@@ -41,15 +41,14 @@ if env["coverage"]:
     env.Append(CCFLAGS=["--coverage"], LINKFLAGS=["--coverage"])
 
 # --- the framework test library ----------------------------------------------
-# The reusable wiring lives in SConscript; this host passes its own files.
+# The reusable wiring supplies the generic entry, adapter, and fixture. The
+# reference host only declares its suites and output name.
 lib = env.SConscript(
     "SConscript",
     variant_dir="build/gdextest",
     duplicate=0,
     exports={"env": env, "gdxtest": {
         "enabled": env["tests"],
-        "entry":   "src/gdx_test_entry.cpp",
-        "adapter": "src/support/adapter.cpp",
         "suites": [
             "tests/framework_self_tests.cpp",
             "tests/string_utils_tests.cpp",

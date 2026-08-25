@@ -1,8 +1,7 @@
 # Consumer guide
 
-How another GDExtension repo integrates gdextest. This repo is itself the reference
-consumer — every step below is what `src/`, `tests/`, `testdata/project/`, and
-`run_tests.sh` do here, so treat them as the working example.
+How another GDExtension repo integrates gdextest. The reference consumer uses the same
+reusable build and generated-fixture path described below.
 
 ## Model
 
@@ -16,11 +15,8 @@ your repo/
   extern/gdextest/          # this framework (git submodule)
   src/…                     # your extension sources (untouched by the framework)
   tests/                    # your GDX_TEST suites
-  testsupport/
-    adapter.cpp             # your adapter (bootstrap + hook)
-    entry.cpp               # GDExtension entry (register your plugin)
-  testdata/project/         # fixture project (see below)
   SConstruct                # add the test target (see Build)
+  build/gdxtest/project/    # generated fixture (disposable)
 ```
 
 ## 1. Pull in the framework
@@ -68,9 +64,38 @@ GDX_TEST_T(my_extension, class_is_registered, TAG_INTEGRATION) {
 }
 ```
 
-## 3. Write the adapter
+## 3. Build with the generated host
 
-`adapter.cpp` is the **only file that knows your extension's wiring**. Model it on
+The framework owns the generic GDExtension entry point, adapter, editor plugin wrapper,
+manifest, and fixture project. Consumers only provide their suites:
+
+```python
+lib = env.SConscript(
+    "extern/gdxtest/SConscript",
+    variant_dir="build/gdxtest", duplicate=0,
+    exports={"env": env, "gdxtest": {
+        "enabled": env.get("tests", False),
+        "suites": Glob("tests/*.cpp"),
+    }},
+)
+if lib:
+    Default(lib)
+```
+
+This produces the test library and `build/gdxtest/project/`. The generated project contains
+the scan-safe `EditorPlugin` wrapper and points at the generated library, so there is no
+copying or symlink step.
+
+## 4. Customize startup only when needed
+
+If your extension needs services bootstrapped before the tests run, pass a custom `adapter`
+(or `entry`) path in the same `gdxtest` export. The defaults are suitable for pure tests and
+extensions whose normal initialization occurs while Godot loads the library.
+
+## 5. Write a custom adapter (optional)
+
+If the default host is not enough, `adapter.cpp` is the **only file that should know your
+extension's wiring**. Model it on
 [`src/support/adapter.cpp`](../src/support/adapter.cpp) — ~40 lines by design:
 
 ```cpp
@@ -109,7 +134,7 @@ void maybe_run(godot::Node *tree_node) {
 #endif // GDX_TESTS_ENABLED
 ```
 
-## 4. Add the entry point
+## 6. Add a custom entry point (optional)
 
 Copy [`src/gdx_test_entry.cpp`](../src/gdx_test_entry.cpp) and rename the plugin class to
 match your extension. It registers an `EditorPlugin` whose `_ready()` calls your adapter.
@@ -133,7 +158,7 @@ GDExtensionBool GDE_EXPORT my_library_init(
 The `.gdextension` manifest in your fixture project must set `entry_symbol` to this
 function's name.
 
-## 5. Create the fixture project
+## 7. Create a custom fixture project (optional)
 
 Copy [`testdata/project/`](../testdata/project/) and adapt. Three pieces:
 
@@ -194,9 +219,9 @@ func _exit_tree() -> void:
         test_plugin = null
 ```
 
-## 6. Build
+## 8. Custom build details
 
-Call the framework's reusable [`SConscript`](../SConscript) **after** your godot-cpp
+For custom entry/adapter or output settings, call the framework's reusable [`SConscript`](../SConscript)
 `SConscript` (the env must already carry godot-cpp's include paths and `LIBS`). It compiles
  the framework core, your entry, your adapter, and your suites into a separately-named
 shared object with `GDX_TESTS_ENABLED` defined, and handles all the fiddly bits: framework
@@ -227,10 +252,10 @@ project root. Optional extras your env can carry: `sanitize=true` (ASan/UBSan) a
 `coverage=true` flags are applied to `env` before the call and inherited by the test target
 (this repo's `SConstruct` is the working example).
 
-## 7. Run and wire into CI
+## 9. Run and wire into CI
 
 ```bash
-godot --headless --editor --path testdata/project -- \
+godot --headless --editor --path build/gdxtest/project -- \
     --gdxtest-run --gdxtest-json=results.json
 ```
 

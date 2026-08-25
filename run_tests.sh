@@ -15,19 +15,13 @@ PLATFORM=linux
 TARGET=template_debug
 ARCH=x86_64
 LIB="bin/libgdx-test.${PLATFORM}.${TARGET}.${ARCH}.so"
-FIXTURE="testdata/project"
+FIXTURE="build/gdxtest/project"
 
-# 1. Build the test library (godot-cpp static lib is reused when unchanged).
+# 1. Build the test library and generate a disposable, self-contained fixture.
+#    The framework SConscript stages the library and writes the manifest/plugin.
 scons platform="$PLATFORM" target="$TARGET" tests=true -j"$(nproc)" >/dev/null
 
-# 2. Wire the built library into the fixture's addons/gdxtest/bin/ — the
-#    directory the .gdextension manifest loads from (res://addons/gdxtest/bin/).
-#    The symlink is made relative so it survives moving the checkout.
-WIRE_DIR="$FIXTURE/addons/gdxtest/bin"
-mkdir -p "$WIRE_DIR"
-ln -sf "$(realpath --relative-to "$WIRE_DIR" "$ROOT/$LIB")" "$WIRE_DIR/$(basename "$LIB")"
-
-# 3. Hermetic user:// for the run (docs/testing/notes.md §3.1).
+# 2. Hermetic user:// for the run (docs/testing/notes.md §3.1).
 export XDG_DATA_HOME="$(mktemp -d)"
 
 # 4. Run headless in editor mode (the extension hooks EditorPlugin::_ready();

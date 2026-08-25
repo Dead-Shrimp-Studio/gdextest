@@ -26,8 +26,8 @@ GODOT=/path/to/Godot_v4.5-stable_linux.x86_64 ./run_tests.sh
 Or step by step:
 
 ```bash
-scons platform=linux target=template_debug tests=true      # -> bin/libgdx-test.linux.template_debug.x86_64.so
-godot --headless --editor --path testdata/project -- --gdxtest-run
+scons platform=linux target=template_debug tests=true      # builds + generates build/gdxtest/project
+godot --headless --editor --path build/gdxtest/project -- --gdxtest-run
 ```
 
 You'll see a summary like `== gdextest: 19 passed, 0 failed, 1 skipped ==` and the shell
@@ -133,30 +133,34 @@ build**, and drive them through a tiny per-extension adapter.
    pattern used here): `git submodule add <this repo> extern/gdextest`.
 
 2. **Write your suites** with `GDX_TEST(...)` and the assertion macros (above). Nothing
-   else is needed for pure-logic tests.
+   else is needed for pure-logic tests.3. **Build with the reusable `SConscript`** — it supplies the generic entry point and
+   adapter, compiles the framework plus your suites into a test-only shared object, and
+   generates a disposable fixture project. The minimal configuration is:
 
-3. **Write an adapter** — one file that knows your extension's shape: which services to
-   bootstrap before tests run, and how to hand the live `SceneTree` node to the runner. See
-   [`src/support/adapter.cpp`](src/support/adapter.cpp) — it's ~40 lines by design:
-   check the trigger, `bootstrap()`, then `gdextest::run_all_and_quit(tree_node)`.
+   ```python
+   lib = env.SConscript(
+       "extern/gdextest/SConscript",
+       variant_dir="build/gdxtest", duplicate=0,
+       exports={"env": env, "gdxtest": {
+           "enabled": env.get("tests", False),
+           "suites": Glob("tests/*.cpp"),
+       }},
+   )
+   if lib:
+       Default(lib)
+   ```
 
-4. **Add the entry point** (`src/gdx_test_entry.cpp`): it registers an `EditorPlugin`
-   whose `_ready()` calls your adapter. Keep it compiled only in your test build
-   (`GDX_TESTS_ENABLED`).
+4. **Run the generated fixture**: `godot --headless --editor --path
+   build/gdxtest/project -- --gdxtest-run --gdxtest-json=results.json` and map the exit
+   code to your pipeline. No fixture files, manifest, plugin wrapper, or library symlink
+   need to be copied into the repository.
 
-5. **Create a fixture project** (copy `testdata/project/`): a `project.godot` that enables
-   the plugin and lists your `.gdextension`, plus an `addons/<name>/plugin.cfg` + `plugin.gd`
-   wrapper. The wrapper instantiates your native plugin once the editor filesystem scan
-   finishes — quitting earlier races the scan thread (see
-   [`docs/testing/notes.md`](docs/testing/notes.md) §5).
+5. **Customize only when needed**: provide `entry`, `adapter`, `fixture_dir`,
+   `entry_symbol`, `project_name`, or `native_extensions` in the `gdxtest` exports when
+   the extension needs custom startup or additional native libraries. The default adapter
+   is intentionally a no-op bootstrap; extension-specific initialization remains an
+   explicit opt-in override.
 
-6. **Build with `tests=true`** — call the framework's reusable [`SConscript`](SConscript)
-   from your `SConstruct`; it compiles the framework core, your entry, your adapter, and
-   your suites into a separately-named shared object (`libgdxtest...so`), so release builds
-   stay clean.
-
-7. **Run in CI**: `godot --headless --editor --path <fixture> -- --gdxtest-run
-   --gdxtest-json=results.json` and map the exit code to your pipeline.
 
 > The `SConscript` wiring is done; the fixture project is still copy-the-template — this
 > repo's `testdata/project/` is the reference.
@@ -181,7 +185,8 @@ build**, and drive them through a tiny per-extension adapter.
 | `src/gdx_test_entry.cpp` | GDExtension entry + `EditorPlugin` shell (test build only) |
 | `src/support/adapter.cpp` | Per-extension adapter — the one file that knows your wiring |
 | `tests/` | Framework self-tests + reference suites |
-| `testdata/project/` | Fixture project: `project.godot`, `.gdextension`, `addons/gdxtest/` |
+| `tools/generate_fixture.py` | Generates the disposable headless Godot fixture |
+| `build/gdxtest/project/` | Generated fixture project (not committed) |
 | `run_tests.sh` | Build + wire + headless run, one command |
 | `docs/` | Full documentation (architecture, API reference, CLI, consumer guide — see [`docs/README.md`](docs/README.md)) |
 | `.plans/` | Milestone plan |

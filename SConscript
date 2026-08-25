@@ -1,36 +1,31 @@
 #!/usr/bin/env python3
 # Reusable build wiring for the gdextest framework.
 #
-# Include this from your extension's SConstruct to compile the framework core,
-# your entry point, your adapter, and your suites into a test-only shared
-# object. Call it AFTER your godot-cpp SConscript so `env` already carries
-# godot-cpp's include paths and LIBS (this repo's SConstruct is a working
-# example of the full call).
+# Include this from your extension's SConstruct after godot-cpp is wired into
+# `env`. The common consumer path only needs suites:
 #
 #   lib = env.SConscript(
-#       "extern/gdextest/SConscript",
-#       variant_dir="build/gdextest", duplicate=0,   # keep objects out of the submodule
+#       "extern/gdxtest/SConscript",
+#       variant_dir="build/gdxtest", duplicate=0,
 #       exports={"env": env, "gdxtest": {
-#           "enabled":  env.get("tests", False),     # or omit -> ARGUMENTS tests=true
-#           "entry":    "testsupport/entry.cpp",     # host entry (required)
-#           "adapter":  "testsupport/adapter.cpp",   # host adapter (required)
-#           "suites":   Glob("tests/*.cpp"),         # host suites (optional)
-#           "out_dir":  "bin",
-#           "out_name": "libgdxtest",                # -> libgdxtest.linux.template_debug.x86_64.so
+#           "enabled": env.get("tests", False),
+#           "suites": Glob("tests/*.cpp"),
 #       }},
 #   )
 #   if lib:
 #       Default(lib)
 #
-# Paths in `gdxtest` resolve against your project root (pass plain relative
-# paths, "#..." paths, absolute paths, or SCons nodes). Returns the
-# shared-library node, or None when disabled.
+# The framework supplies the entry point, adapter, output name, and a generated
+# fixture project. `entry`, `adapter`, and fixture settings remain overrideable
+# for extensions with custom startup behavior.
 
 Import("env")
 
+import importlib.util
 import os
 
 from SCons.Errors import UserError
+from SCons.Script import Default
 
 try:
     Import("gdxtest")
@@ -38,7 +33,6 @@ except Exception:
     gdxtest = {}
 
 # --- enabled? ----------------------------------------------------------------
-# Explicit flag wins; otherwise env["tests"]; otherwise `scons tests=true`.
 enabled = gdxtest.get("enabled")
 if enabled is None:
     enabled = env.get("tests", False)
@@ -49,73 +43,121 @@ if enabled is None:
             pass
 
 if not enabled:
-    print("gdextest: disabled (pass tests=true or gdxtest['enabled'])")
+    print("gdxtest: disabled (pass tests=true or gdxtest['enabled'])")
     Return()
 
-# --- options -----------------------------------------------------------------
+# --- paths and options -------------------------------------------------------
+framework_root = Dir(".").srcnode()
 out_dir = gdxtest.get("out_dir", "bin")
-out_name = gdxtest.get("out_name", "libgdextest")
-# godot-cpp sets env["suffix"] (".linux.template_debug.x86_64"); fall back for
-# hosts whose env didn't go through godot-cpp's SConscript.
+out_name = gdxtest.get("out_name", "libgdxtest")
+
+# godot-cpp sets env["suffix"] (".linux.template_debug.x86_64"). Fall back
+# for hosts whose env did not go through godot-cpp's SConscript.
 suffix = env.get("suffix", "")
 if not suffix:
-    plat, tgt, arch = env.get("platform", ""), env.get("target", ""), env.get("arch", "x86_64")
+    plat = env.get("platform", "")
+    tgt = env.get("target", "")
+    arch = env.get("arch", "x86_64")
     if plat and tgt:
         suffix = f".{plat}.{tgt}.{arch}"
 
-entry = gdxtest.get("entry")
-adapter = gdxtest.get("adapter")
+entry = gdxtest.get("entry", framework_root.File("src/gdx_test_entry.cpp"))
+adapter = gdxtest.get("adapter", framework_root.File("src/support/adapter.cpp"))
 if not entry or not adapter:
-    raise UserError("gdextest: 'entry' and 'adapter' are required in the gdxtest exports")
+    raise UserError("gdxtest: 'entry' and 'adapter' must be valid paths")
 
 
-def root_path(p):
+def root_path(path):
     """Resolve host-supplied paths against the host project root."""
-    if isinstance(p, str) and not p.startswith("#") and not os.path.isabs(p):
-        return "#" + p
-    return p
+    if isinstance(path, str) and not path.startswith("#") and not os.path.isabs(path):
+        return "#" + path
+    return path
 
 
-framework_root = Dir(".").srcnode()  # real framework dir (works with/without variant_dir)
+def to_script_rel(path):
+    """Map a source into this SConscript's variant directory."""
+    absolute = os.path.abspath(env.File(root_path(path)).abspath)
+    return os.path.relpath(absolute, framework_root.abspath)
 
 
-def to_script_rel(p):
-    """Return p as a path relative to this SConscript dir, so variant_dir maps
-    its object files into the variant dir instead of polluting source trees
-    (absolute/# paths bypass the variant mapping and objects land next to the
-    sources). Host files outside the framework tree fall back to normal SCons
-    behavior (objects next to their sources)."""
-    abs_p = os.path.abspath(env.File(root_path(p)).abspath)
-    return os.path.relpath(abs_p, framework_root.abspath)
+framework_sources = [
+    to_script_rel(source)
+    for source in env.Glob(str(framework_root.abspath) + "/src/framework/*.cpp")
+]
+sources = (
+    [to_script_rel(entry), to_script_rel(adapter)]
+    + [to_script_rel(source) for source in gdxtest.get("suites", [])]
+    + framework_sources
+)
 
-
-framework_sources = [to_script_rel(f) for f in
-                     env.Glob(str(framework_root.abspath) + "/src/framework/*.cpp")]
-
-sources = ([to_script_rel(entry), to_script_rel(adapter)]
-           + [to_script_rel(s) for s in gdxtest.get("suites", [])]
-           + framework_sources)
-
-# --- build environment --------------------------------------------------------
-# Clone so the host's env (and its real extension build) stays untouched.
+# --- test library ------------------------------------------------------------
 test_env = env.Clone()
-test_env.Append(CPPDEFINES=["GDX_TESTS_ENABLED"])          # gates all framework code
-test_env.Append(CPPPATH=[framework_root.Dir("src")])       # "#include "framework/..."
+test_env.Append(CPPDEFINES=["GDX_TESTS_ENABLED"])
+test_env.Append(CPPPATH=[framework_root.Dir("src")])
 test_env.Append(CCFLAGS=["-std=c++17", "-fPIC", "-Wall", "-Wextra"])
-# godot-cpp defaults to -fno-exceptions; the framework's abort/catch mechanism
-# needs exceptions enabled in the TUs it compiles (appended last so it wins).
+# godot-cpp defaults to -fno-exceptions; the framework uses exceptions to abort
+# an individual test body without crossing an engine callback boundary.
 test_env.Append(CXXFLAGS=["-fexceptions"])
 
 if not test_env.get("LIBS"):
-    print("gdextest: WARNING - env has no LIBS; did you wire godot-cpp before calling this SConscript?")
+    print("gdxtest: WARNING - env has no LIBS; did you wire godot-cpp before calling this SConscript?")
 
-# SHLIBSUFFIX is appended explicitly: SCons treats a trailing ".x86_64" as a
-# file extension and would otherwise skip the ".so" (godot-cpp convention).
-# The target is made absolute so it lands in the host project's out_dir, not
-# inside this SConscript's variant dir.
 out_abs = os.path.join(env.Dir("#").abspath, out_dir)
 target = f"{out_abs}/{out_name}{suffix}{test_env['SHLIBSUFFIX']}"
 lib = test_env.SharedLibrary(target=target, source=sources)
-print(f"gdextest: test library -> {target}")
+print(f"gdxtest: test library -> {target}")
+
+# --- generated fixture -------------------------------------------------------
+generate_fixture = gdxtest.get("generate_fixture", True)
+if generate_fixture:
+    fixture_dir = gdxtest.get("fixture_dir", "build/gdxtest/project")
+    fixture_abs = os.path.join(env.Dir("#").abspath, fixture_dir)
+    project_name = gdxtest.get("project_name", "gdxtest fixture")
+    entry_symbol = gdxtest.get("entry_symbol", "gdx_test_library_init")
+    godot_version = gdxtest.get("godot_version", "4.5")
+    manifest_name = gdxtest.get("manifest_name", out_name + ".gdextension")
+    library_basename = os.path.basename(target)
+
+    platform = env.get("platform", "linux")
+    target_name = env.get("target", "template_debug")
+    arch = env.get("arch", "x86_64")
+    feature = "release" if target_name == "template_release" else "debug"
+    library_key = gdxtest.get(
+        "library_key", f"{platform}.{feature}.{arch}")
+
+    fixture_targets = [
+        os.path.join(fixture_abs, "project.godot"),
+        os.path.join(fixture_abs, "addons", "gdxtest", "plugin.cfg"),
+        os.path.join(fixture_abs, "addons", "gdxtest", "plugin.gd"),
+        os.path.join(fixture_abs, "addons", "gdxtest", manifest_name),
+        os.path.join(fixture_abs, "addons", "gdxtest", "bin", library_basename),
+    ]
+    generator_path = framework_root.File("tools/generate_fixture.py")
+    generator_spec = importlib.util.spec_from_file_location(
+        "gdxtest_fixture_generator", generator_path.abspath)
+    fixture_generator = importlib.util.module_from_spec(generator_spec)
+    generator_spec.loader.exec_module(fixture_generator)
+
+    def generate_fixture_action(target=None, source=None, env=None):
+        fixture_generator.generate_fixture(
+            project_root=fixture_abs,
+            library_path=source[0].abspath,
+            library_basename=library_basename,
+            manifest_basename=manifest_name,
+            entry_symbol=entry_symbol,
+            project_name=project_name,
+            godot_version=godot_version,
+            library_key=library_key,
+            native_extensions=gdxtest.get("native_extensions", []),
+        )
+        return 0
+
+    fixture = test_env.Command(
+        fixture_targets,
+        [lib, generator_path],
+        generate_fixture_action,
+    )
+    Default(fixture)
+    print(f"gdxtest: fixture -> {fixture_abs}")
 
 Return("lib")
