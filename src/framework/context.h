@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "config.h"   // kDefaultTimeoutMs (default await timeout)
+
 namespace gdextest {
 
 struct Failure {
@@ -12,6 +14,11 @@ struct Failure {
     int line = 0;
     std::string message;
 };
+
+// Awaitables returned by TestContext::await_* (defined in async.h). Forward
+// declarations keep context.h free of the coroutine machinery.
+class FrameAwaiter;
+class TimerAwaiter;
 
 class TestContext {
 public:
@@ -45,6 +52,14 @@ public:
     // Non-null only when the test runs through the real engine trigger.
     void set_engine(void *engine) { engine_ = engine; }
     void *engine_handle() const { return engine_; }
+
+    // Async waits for multi-frame tests (plan §7.2, Milestone C). Used as
+    // `co_await ctx.await_frames(2)` inside a GDX_TEST_ASYNC body; the runner's
+    // frame pump resumes the body once the wait resolves. `timeout_ms` bounds
+    // how long the wait may take before the test is failed (a safety net for
+    // waits that never resolve). Implemented in async.h.
+    FrameAwaiter await_frames(int64_t frames, int64_t timeout_ms = kDefaultTimeoutMs);
+    TimerAwaiter await_timer_ms(int64_t ms, int64_t timeout_ms = 0);
 
 private:
     std::vector<Failure> failures_;

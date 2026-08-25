@@ -2,6 +2,8 @@
 // Hosts with a naming clash redefine these here (and only here) — see plan §15.
 #pragma once
 
+#include <cstdint>
+
 namespace gdextest {
 
 // Tag bitmask carried by each TestCase.

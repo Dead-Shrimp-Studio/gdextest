@@ -7,9 +7,10 @@ can exercise both pure logic and live engine APIs (singletons, your own register
 `Variant`/`String` round-trips, …), and are CI-friendly via JSON output and test
 filtering/sharding.
 
-> **Status:** Milestones A and B are complete: the framework core, portable `HostConfig`,
+> **Status:** Milestones A–C are complete: the framework core, portable `HostConfig`,
 > reference fixture, headless execution, structured configuration, diagnostics, JSON
-> output, and the CLI-driven external-consumer flow are working on Godot 4.5.
+> output, the CLI-driven external-consumer flow, and async / multi-frame tests are
+> working on Godot 4.5.
 
 ---
 
@@ -33,7 +34,7 @@ scons platform=linux target=template_debug tests=true      # builds + generates 
 godot --headless --editor --path build/gdextest/project -- --gdextest-run
 ```
 
-You'll see a summary like `== gdextest: 25 passed, 0 failed, 1 skipped ==` and the shell
+You'll see a summary like `== gdextest: 34 passed, 0 failed, 1 skipped ==` and the shell
 exit code tells you the result: **0** = all passed (skips do not fail the run),
 **1** = ≥1 failure, **2** = usage error.
 
@@ -75,6 +76,34 @@ failing check:
 `TAG_SLOW`, `TAG_FLAKY`, … — see `src/framework/config.h`). Tag names resolve bare, so write
 `GDX_TEST_T(engine, spins_up, TAG_INTEGRATION)` exactly as shown. This repo's reference
 suites live in [`tests/`](tests/).
+
+### Async / multi-frame tests
+
+A test can suspend across engine frames and resume later — e.g. to observe a frame
+counter advance, wait for a signal to settle, or time a real operation. Register it
+with `GDX_TEST_ASYNC` (tagged `TAG_ASYNC`; `GDX_TEST_ASYNC_T(suite, name, tags)` for
+extra tags) and `co_await` a wait on its context. The body is a C++20 coroutine; use
+`co_return;` instead of a bare `return;`:
+
+```cpp
+GDX_TEST_ASYNC(async, engine_frames_advance) {
+    godot::Engine *engine = godot::Engine::get_singleton();
+    const int64_t before = static_cast<int64_t>(engine->get_process_frames());
+    co_await ctx.await_frames(2);                 // suspend across 2 process frames
+    GDX_EXPECT_GE(static_cast<int64_t>(engine->get_process_frames()) - before, 2);
+
+    const int64_t start = godot::Time::get_singleton()->get_ticks_msec();
+    co_await ctx.await_timer_ms(100);             // or wait on wall-clock time
+    GDX_EXPECT_GE(godot::Time::get_singleton()->get_ticks_msec() - start, 100);
+}
+```
+
+The runner pumps the live `SceneTree.process_frame` signal: sync tests still run inline,
+async tests are resumed one at a time in declaration order. Every wait has a safety
+net — `ctx.await_frames(n, timeout_ms)` and `ctx.await_timer_ms(ms, timeout_ms)` fail
+the test if the wait does not resolve in time (default `kDefaultTimeoutMs` = 30 s;
+`kDefaultIsolateTimeoutSec` = 60 s bounds the whole test), so a test that never
+resolves is red, never a hang. See `docs/api-reference.md` → Async tests for details.
 
 ### Live-engine tests
 
@@ -118,6 +147,10 @@ lists; the options are read from the user list):
 | `--gdextest-shard=k/n` | run shard k of n (stable hash assignment) |
 | `--gdextest-shuffle[=seed]` | randomize order (fixed seed = reproducible) |
 | `--gdextest-json=<path>` | write machine-readable results to a file |
+
+Async tests need the engine: run them through the trigger (the fixture's
+`EditorPlugin`), where the runner can pump frames. The `self` suite also verifies the
+async machinery headlessly with a simulated frame clock.
 
 Example:
 
@@ -225,6 +258,8 @@ repository — they're all generated.
 
 ## Gotchas
 
+- In `GDX_TEST_ASYNC` bodies use `co_return;` — a bare `return;` is rejected by the
+  compiler inside a coroutine.
 - The editor plugin script must `extend EditorPlugin` directly — extending the native
   `GdextestPlugin` is rejected by the plugin manager.
 - The run must be deferred until `EditorFileSystem.is_scanning()` is false, or the editor

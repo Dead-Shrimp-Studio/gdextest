@@ -30,21 +30,39 @@ Registration happens through a static `Registrar` whose constructor calls
 `TestRegistry::instance().add(...)`, so tests are registered at library load time — before
 any engine interaction. `GDX_TEST` assigns `TAG_UNIT` by default.
 
+### `GDX_TEST_ASYNC(suite, name)` / `GDX_TEST_ASYNC_T(suite, name, tags)`
+
+Declares and registers an **async test** (Milestone C): a C++20 coroutine body that may
+`co_await` engine waits (see [Async tests](#async-tests)). `GDX_TEST_ASYNC` tags the test
+`TAG_ASYNC`; the `_T` variant takes explicit tags. The body receives `TestContext& ctx`
+and must end with `co_return;` (a bare `return;` is not allowed inside a coroutine):
+
+```cpp
+GDX_TEST_ASYNC(async, frames_advance) {
+    const int64_t before = engine->get_process_frames();
+    co_await ctx.await_frames(2);
+    GDX_EXPECT_GE(engine->get_process_frames() - before, 2);
+    co_return;
+}
+```
+
 ### `TestCase`
 
 ```cpp
 struct TestCase {
-    const char *suite;   // suite name
-    const char *name;    // test name
-    TestFn fn;           // void (*)(TestContext&)
-    uint32_t tags;       // bitmask of Tag values
-    const char *file;    // __FILE__ at registration
-    int line;            // __LINE__ at registration
+    const char *suite;    // suite name
+    const char *name;     // test name
+    TestFn fn;            // void (*)(TestContext&) — sync body, or null
+    AsyncTestFn async_fn; // Task (*)(TestContext&) — async body, or null
+    uint32_t tags;        // bitmask of Tag values
+    const char *file;     // __FILE__ at registration
+    int line;             // __LINE__ at registration
 };
 ```
 
 You normally never construct one by hand — the macros do. `TestFn` is
-`void (*)(TestContext &)`.
+`void (*)(TestContext &)`; `AsyncTestFn` is `Task (*)(TestContext &)` (see
+[Async tests](#async-tests)). Exactly one of `fn` / `async_fn` is set.
 
 ### `TestRegistry`
 
@@ -91,6 +109,53 @@ Selection semantics (see `registry.cpp`):
   (FNV-1a hash), so assignments are stable across runs and shards are disjoint + complete.
 - **Shuffle:** Fisher–Yates with a fixed LCG seeded from `shuffle_seed` (0 → 1), so a given
   seed always produces the same order. Declaration order is preserved otherwise.
+
+## Async tests
+
+Header: `framework/async.h` (pure C++ core — no Godot types; the engine-boundary pump
+lives in `runner.cpp`). Async tests let a body suspend across engine frames and resume
+later, driven by the runner's `process_frame` pump. Suites register them with
+`GDX_TEST_ASYNC` / `GDX_TEST_ASYNC_T` and `co_await` a wait on the test's context:
+
+```cpp
+co_await ctx.await_frames(2);      // resume after 2 process_frame ticks
+co_await ctx.await_timer_ms(100);  // resume after >= 100 ms of wall clock
+co_await ctx.await_frames(5, 500); // same, but fail if the wait exceeds 500 ms
+```
+
+### The coroutine type: `gdextest::Task`
+
+`Task` is the coroutine return type behind `GDX_TEST_ASYNC`. The runner creates the
+coroutine lazily and drives it: `resume()` runs the body until it suspends (a `co_await`)
+or completes. Exceptions thrown by the body — `GDX_ABORT_TEST`, `GDX_SKIP`, crashes — are
+captured into the promise and reported the same way as for sync tests (a thrown
+`TestAborted` marks the test crashed, `TestSkipped` skips it). Test authors never touch
+`Task` directly.
+
+### Waits and timeouts
+
+- `ctx.await_frames(frames, timeout_ms = kDefaultTimeoutMs)` — resumes after `frames`
+  `process_frame` ticks. `await_frames(0)` resolves immediately without consuming a tick.
+- `ctx.await_timer_ms(ms, timeout_ms = 0)` — resumes after at least `ms` milliseconds
+  (measured with `Time::get_ticks_msec()`). A `timeout_ms` of `0` defaults to
+  `max(ms, kDefaultTimeoutMs)`, so the timer's own duration is always a valid wait.
+
+Every suspension carries a deadline. If the wait does not resolve by its deadline, the
+runner **fails the test** with a `timed out` failure (status `fail` in JSON, counted in
+`fail`) and destroys the suspended coroutine — a test that never resolves is red, never a
+hang. Separately, `kDefaultIsolateTimeoutSec` (60 s) bounds the **whole test**: a chain of
+awaits that individually fit under the per-wait timeout but together exceed the budget is
+failed too.
+
+### Semantics
+
+- Async tests run **one at a time, in declaration order** — the pump never interleaves
+  two bodies, so results stay deterministic.
+- Async tests require the live engine (the pump advances on real frames). If a body
+  `co_await`s with no pump active — e.g. `co_await` inside a plain `GDX_TEST` — the await
+  records a failure ("used outside an async test run") and the body continues.
+- Self-tests verify the machinery headlessly through `SubAsyncPump`, which simulates
+  `process_frame` ticks and a monotonic ms clock (see [Runner entry points](#runner-entry-points)).
 
 ## Assertions
 
@@ -168,6 +233,11 @@ public:
     void set_engine(void *engine);       // set by the runner in engine-triggered runs
     void *engine_handle() const;         // opaque live-engine host, or null
 
+    // Async waits (Milestone C): awaitables for `co_await` in GDX_TEST_ASYNC bodies
+    // (defined in async.h). See [Async tests](#async-tests).
+    FrameAwaiter await_frames(int64_t frames, int64_t timeout_ms = kDefaultTimeoutMs);
+    TimerAwaiter await_timer_ms(int64_t ms, int64_t timeout_ms = 0);
+
     void track_object(void *obj);  // M4 stub — leak/UAF tracking hooks
     void track_ref(void *ref);     // M4 stub
 };
@@ -175,8 +245,11 @@ public:
 
 The runner constructs one `TestContext` per test and injects it as `ctx`. `abort_test` is
 the implementation behind `GDX_ABORT_TEST`; it records on the currently-active context
-before throwing. `track_object`/`track_ref` are declared so assertion code can reference
-them without `#ifdef` churn; the tracking implementation is a later milestone.
+before throwing. `await_frames`/`await_timer_ms` return the awaitables used with `co_await`
+in async test bodies; their implementations live in `async.h` (the forward declarations in
+`context.h` keep the coroutine machinery out of the core header).
+`track_object`/`track_ref` are declared so assertion code can reference them without
+`#ifdef` churn; the tracking implementation is a later milestone.
 
 The engine handle is an opaque `void*` so the core stays Godot-free. When a run happens
 through the engine trigger, the runner sets it to the live host node; engine-boundary
@@ -240,12 +313,36 @@ void run_all_and_quit(void *tree_node);
 // Used by the self-test suite to verify assertion macros.
 int run_sub_and_count_failures(void (*body)(TestContext &));
 
+// Run a single test body with a fresh TestContext and write its result as a
+// single-entry JSON document to `path` (same schema as --gdextest-json).
+// Returns the body's failure count.
+int run_sub_and_write_json(void (*body)(TestContext &), const char *path);
+
+// Manual frame pump for async self-tests (no engine): simulates process_frame
+// ticks and a monotonic ms clock so the coroutine machinery (suspend/resume,
+// per-wait timeout, isolate budget) is verifiable headlessly.
+class SubAsyncPump {
+public:
+    // Start an async body on a fresh simulated clock; true if it suspended.
+    bool start(std::function<Task(TestContext &)> body, TestContext &ctx);
+    // Advance one simulated frame (+tick_ms); false once the body finished/failed.
+    bool step(int64_t tick_ms = 16);
+};
+
+// Drive an async body to completion through SubAsyncPump and write its result
+// as a single-entry JSON document to `path` (same schema as --gdextest-json).
+// Returns the body's failure count.
+int run_sub_async_write_json(std::function<Task(TestContext &)> body, const char *path);
+
 }  // namespace gdextest
 ```
 
 `run_all_and_quit` needs a live `SceneTree` to call `quit()` — the adapter must only invoke
 it from a verified hook point (the editor plugin's `_ready()` in this repo's reference
-setup). The runner tolerates a null tree for the run itself, but `quit()` needs it.
+setup). The runner tolerates a null tree for the run itself, but `quit()` needs it. With
+async tests selected, `run_all_and_quit` may return before the run completes: the
+`process_frame` pump it connects resumes suspended coroutines on later frames and calls
+`quit()` itself once every test has finished.
 
 ## Configuration
 
@@ -260,9 +357,9 @@ enum Tag : uint32_t {
     TAG_FLAKY       = 1 << 4,
 };
 
-inline constexpr int kDefaultTimeoutMs = 30000;        // per async wait (M2)
+inline constexpr int kDefaultTimeoutMs = 30000;        // per-wait timeout for co_await waits
 inline constexpr int kDefaultFlakyRetries = 3;         // flaky retry budget
-inline constexpr int kDefaultIsolateTimeoutSec = 60;   // isolate time budget
+inline constexpr int kDefaultIsolateTimeoutSec = 60;   // per-test budget for a whole async test
 ```
 
 Hosts with a naming clash (or different budgets) redefine these in this header only — per

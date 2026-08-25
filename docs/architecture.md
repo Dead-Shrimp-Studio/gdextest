@@ -15,9 +15,10 @@ Suites register themselves in a static registry when the test `.so` is loaded. T
 Godot project enables an `EditorPlugin` that, once the editor is up (and the filesystem
 scan has finished), calls the adapter. The adapter detects a trigger (`GDX_RUN_TESTS` env
 var or `--gdextest-run`), bootstraps the extension's services, and hands the live
-`SceneTree` to the runner. The runner parses `--gdextest-*` flags, selects tests, runs them
-synchronously, prints results, and calls `SceneTree::quit(code)` — the process exits with
-that code. That is the entire contract.
+`SceneTree` to the runner. The runner parses `--gdextest-*` flags, selects tests, and runs
+them — sync bodies inline, async bodies (Milestone C) through a `process_frame` pump that
+suspends and resumes coroutines across frames — then prints results and calls
+`SceneTree::quit(code)`; the process exits with that code. That is the entire contract.
 
 ```
 +-----------------+      +----------------------+      +------------------+
@@ -56,8 +57,13 @@ The most important design constraint, repeated in comments throughout the code:
    check. The single exception is `GDX_ABORT_TEST`, which throws a private `TestAborted`
    that is caught *inside the runner's own frame* — it never crosses an engine callback
    boundary.
-5. **The runner is single-threaded and synchronous** (current milestone). Async/multi-frame
-   tests are a planned M2 feature; `config.h` already carries the budget constants for them.
+5. **The runner is single-threaded.** Sync tests run inline, one after another. Async tests
+   (Milestone C) are C++20 coroutines: when a body `co_await`s, the runner registers a
+   `process_frame` callback and returns control to the engine main loop; each frame
+   advances the wait and resumes the coroutine when it resolves. Tests still run one at a
+   time, in declaration order — no interleaving. Timeouts (`kDefaultTimeoutMs` per wait,
+   `kDefaultIsolateTimeoutSec` per test) bound every suspension so a test that never
+   resolves fails instead of hanging the run.
 
 ## Lifecycle of a test run
 
@@ -77,8 +83,12 @@ The most important design constraint, repeated in comments throughout the code:
    returns immediately unless a trigger is present: `GDX_RUN_TESTS` in the environment, or
    `--gdextest-run` in either of Godot's two argument lists (before or after `--`).
 5. **Run.** `run_all_and_quit(tree_node)` parses the `--gdextest-*` options from the user
-   args, filters/shards/shuffles the registry, runs each selected test body with a fresh
-   `TestContext`, and prints human output (plus JSON if `--gdextest-json=` was given).
+   args and filters/shards/shuffles the registry. Sync bodies run inline with a fresh
+   `TestContext`. An async body (`GDX_TEST_ASYNC`) is a coroutine: the runner starts it and,
+   when it `co_await`s `ctx.await_frames(n)` / `ctx.await_timer_ms(ms)`, connects a
+   `process_frame` pump that resumes it once the wait resolves (or fails it on timeout).
+   When every test is done it prints human output (plus JSON if `--gdextest-json=` was
+   given).
 6. **Exit.** `SceneTree::quit(code)` propagates to the OS exit code under `--headless`
    (verified: `quit(0)→0`, `quit(1)→1`, `quit(7)→7`). The runner uses `0` for all-pass,
    `1` for any failure.
@@ -100,6 +110,8 @@ up, and a `quit()` from there is dropped — the editor hangs indefinitely. See
 | `Filter` mirrors googletest glob grammar | Familiar to users; supports `suite.*`, negatives, and matching against `suite.name`, `suite`, or `name` |
 | Stable-hash sharding | The same test always lands in the same shard, so shards are disjoint across runs and CI parallelism is reproducible |
 | Seeded shuffle (LCG + Fisher–Yates) | Reproducible randomized order for finding order-dependent bugs |
+| Async tests are C++20 coroutines (`Task` + `co_await`), not threads | Coroutines suspend on the Godot main thread and are resumed by the `process_frame` pump — no locking, no engine calls off the main thread; a plain sync body is unchanged (`GDX_TEST` stays a function pointer) |
+| One async test in flight at a time, declaration order | Keeps results deterministic and avoids interleaving; the pump advances one await per tick |
 | Framework core ships in `src/framework/`, entry + adapter in `src/`, suites in `tests/` | The core is host-agnostic; entry/adapter are the engine-boundary templates; `tests/` is this repo's own reference usage |
 
 ## Engine facts the framework leans on
@@ -115,3 +127,5 @@ binary — see [testing/notes.md](testing/notes.md):
   flag in 4.5).
 - The editor plugin's `_ready()` fires **before** the filesystem scan completes; defer the
   run until `is_scanning()` is false.
+- `SceneTree.process_frame` fires under `--headless` and `--headless --editor` and takes no
+  arguments — the pump drives async tests off it (verified, notes.md §2 R2a/R2b).

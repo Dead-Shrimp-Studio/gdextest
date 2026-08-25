@@ -22,10 +22,12 @@ wants.
 
 Working and verified on Godot **4.5** (Linux x86_64): framework core, sync runner, human +
 JSON reporting, filtering/sharding/shuffling, usage-error exit code 2, live-engine
-integration tests, the reference fixture, headless execution (26 self + reference +
-integration tests green, exit 0), and the reusable consumer `SConscript` wiring (this
-repo's `SConstruct` is the reference consumer of it). Not yet built: async/multi-frame
-tests and object leak/UAF tracking (stubs only). See
+integration tests, **async / multi-frame tests** (`GDX_TEST_ASYNC` + `co_await
+ctx.await_frames/await_timer_ms`, driven by a `process_frame` pump with per-wait and
+per-test timeouts), the reference fixture, headless execution (35 self + reference +
+integration + async tests green, exit 0), and the reusable consumer `SConscript` wiring
+(this repo's `SConstruct` is the reference consumer of it). Not yet built: object
+leak/UAF tracking (stubs only) and flaky retry. See
 [.plans/gdextension-testing-framework.md](../.plans/gdextension-testing-framework.md) for
 the milestone plan.
 
@@ -34,7 +36,7 @@ the milestone plan.
 | Doc | Read it to understand… |
 | --- | --- |
 | [architecture.md](architecture.md) | How the framework fits together: layers, execution model, design rules, lifecycle of a run |
-| [api-reference.md](api-reference.md) | The complete public API: registration macros, assertions, `TestContext`, `Filter`, tags, runner entry points |
+| [api-reference.md](api-reference.md) | The complete public API: registration macros (incl. `GDX_TEST_ASYNC`), assertions, `TestContext` (incl. `await_frames`/`await_timer_ms`), `Filter`, tags, runner entry points |
 | [cli.md](cli.md) | Invocation, `--gdextest-*` flags, exit codes, and the human/JSON output formats |
 | [consumer-guide.md](consumer-guide.md) | How another extension repo integrates gdextest (adapter, entry, fixture, build, CI) |
 | [testing/notes.md](testing/notes.md) | Verified engine facts: headless quit codes, safe hook points, `user://` hermeticity, timing gotchas |

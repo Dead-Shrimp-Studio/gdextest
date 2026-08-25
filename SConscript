@@ -109,10 +109,12 @@ godot_cpp_includes = [include for include in test_env.get("CPPPATH", [])
                       if "godot-cpp" in str(include)]
 for include in godot_cpp_includes:
     test_env.Append(CCFLAGS=["-isystem", str(include)])
-test_env.Append(CCFLAGS=["-std=c++17", "-fPIC", "-Wall", "-Wextra"])
+test_env.Append(CCFLAGS=["-fPIC", "-Wall", "-Wextra"])
+# C++20 for coroutines (async tests, plan §7.2). Appended after godot-cpp's own
+# -std=c++17 in CXXFLAGS, so the last -std flag wins for this target only.
 # godot-cpp defaults to -fno-exceptions; the framework uses exceptions to abort
 # an individual test body without crossing an engine callback boundary.
-test_env.Append(CXXFLAGS=["-fexceptions"])
+test_env.Append(CXXFLAGS=["-fexceptions", "-std=c++20"])
 
 if not test_env.get("LIBS"):
     print("gdextest: WARNING - env has no LIBS; did you wire godot-cpp before calling this SConscript?")

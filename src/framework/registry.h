@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "async.h"
 #include "config.h"
 #include "context.h"
 
@@ -19,10 +20,16 @@ namespace gdextest {
 // per case and passes it in. This is the "runner injects ctx" model (plan §5.2).
 using TestFn = void (*)(TestContext &);
 
+// Async (Milestone C): a coroutine body. Same signature shape as TestFn, but the
+// body returns a Task so it can co_await; the runner drives it through its frame
+// pump instead of a plain call.
+using AsyncTestFn = Task (*)(TestContext &);
+
 struct TestCase {
     const char *suite;
     const char *name;
-    TestFn fn;
+    TestFn fn;            // synchronous body; null for async tests
+    AsyncTestFn async_fn; // coroutine body; null for sync tests (Milestone C)
     uint32_t tags;
     const char *file;
     int line;
@@ -67,7 +74,7 @@ struct Registrar {
 #define GDX_TEST(suite, name)                                                        \
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx);            \
     static const ::gdextest::Registrar gdx_reg_##suite##_##name{                     \
-        ::gdextest::TestCase{ #suite, #name, &gdx_test_##suite##_##name,            \
+        ::gdextest::TestCase{ #suite, #name, &gdx_test_##suite##_##name, nullptr,   \
                               ::gdextest::TAG_UNIT, __FILE__, __LINE__ } };        \
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx)
 
@@ -80,6 +87,28 @@ struct Registrar {
     static const ::gdextest::Registrar gdx_reg_##suite##_##name{ []() {              \
         using namespace ::gdextest;                                                   \
         return ::gdextest::TestCase{ #suite, #name, &gdx_test_##suite##_##name,      \
-                                     (tags), __FILE__, __LINE__ };                   \
+                                     nullptr, (tags), __FILE__, __LINE__ };          \
     }() };                                                                             \
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx)
+
+// Async variant: GDX_TEST_ASYNC(suite, name) registers a coroutine body tagged
+// TAG_ASYNC. The body may `co_await ctx.await_frames(n)` / `ctx.await_timer_ms(ms)`
+// to suspend across engine frames; the runner's frame pump resumes it (plan §7.2,
+// Milestone C). The body must not use a bare `return;` — use `co_return;` instead.
+#define GDX_TEST_ASYNC(suite, name)                                                   \
+    static ::gdextest::Task gdx_test_##suite##_##name(::gdextest::TestContext &ctx);  \
+    static const ::gdextest::Registrar gdx_reg_##suite##_##name{                      \
+        ::gdextest::TestCase{ #suite, #name, nullptr, &gdx_test_##suite##_##name,     \
+                              ::gdextest::TAG_ASYNC, __FILE__, __LINE__ } };         \
+    static ::gdextest::Task gdx_test_##suite##_##name(::gdextest::TestContext &ctx)
+
+// Tagged async variant (bare tag names resolve like GDX_TEST_T).
+#define GDX_TEST_ASYNC_T(suite, name, tags)                                           \
+    static ::gdextest::Task gdx_test_##suite##_##name(::gdextest::TestContext &ctx);  \
+    static const ::gdextest::Registrar gdx_reg_##suite##_##name{ []() {               \
+        using namespace ::gdextest;                                                   \
+        return ::gdextest::TestCase{ #suite, #name, nullptr,                          \
+                                     &gdx_test_##suite##_##name, (tags),             \
+                                     __FILE__, __LINE__ };                           \
+    }() };                                                                             \
+    static ::gdextest::Task gdx_test_##suite##_##name(::gdextest::TestContext &ctx)

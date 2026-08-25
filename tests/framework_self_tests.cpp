@@ -213,4 +213,118 @@ GDX_TEST(self, json_escapes_quotes_and_newlines_in_messages) {
     GDX_EXPECT_STR_CONTAINS(json, "say \\\"hi\\\"\\nnext line");
 }
 
+// --- async: the manual pump (plan §7.2) -----------------------------------
+// SubAsyncPump simulates process_frame ticks and a monotonic ms clock, so the
+// coroutine machinery (suspend/resume, per-wait timeout, isolate budget, JSON)
+// is verifiable headlessly without a Godot engine.
+
+namespace {
+// Incremented once per simulated frame by the self-tests below.
+int g_async_frame_counter = 0;
+}
+
+GDX_TEST(self, async_await_frames_resumes_after_exact_ticks) {
+    g_async_frame_counter = 0;
+    gdextest::TestContext sub_ctx;
+    gdextest::SubAsyncPump pump;
+    bool pending = pump.start([](gdextest::TestContext &ctx) -> gdextest::Task {
+        const int before = g_async_frame_counter;
+        co_await ctx.await_frames(2);
+        GDX_EXPECT_EQ(g_async_frame_counter - before, 2);
+        co_await ctx.await_frames(1);
+        GDX_EXPECT_EQ(g_async_frame_counter - before, 3);
+        co_await ctx.await_frames(0);   // resolves immediately, consumes no frame
+        GDX_EXPECT_EQ(g_async_frame_counter - before, 3);
+    }, sub_ctx);
+    GDX_EXPECT_TRUE(pending);
+    int guard = 0;
+    while (pending && ++guard <= 100) {
+        ++g_async_frame_counter;   // one simulated frame elapsed
+        pending = pump.step(16);
+    }
+    GDX_EXPECT_FALSE(pending);
+    GDX_EXPECT_EQ(g_async_frame_counter, 3);
+    GDX_EXPECT_EQ(sub_ctx.failure_count(), 0);
+}
+
+GDX_TEST(self, async_timer_resumes_after_elapsed_simulated_time) {
+    gdextest::TestContext sub_ctx;
+    gdextest::SubAsyncPump pump;
+    bool pending = pump.start([](gdextest::TestContext &ctx) -> gdextest::Task {
+        co_await ctx.await_timer_ms(50);
+        GDX_EXPECT_TRUE(true);   // reached only after the simulated timer elapsed
+    }, sub_ctx);
+    GDX_EXPECT_TRUE(pending);
+    int guard = 0;
+    while (pending && ++guard <= 100) { pending = pump.step(16); }
+    GDX_EXPECT_FALSE(pending);
+    GDX_EXPECT_EQ(sub_ctx.failure_count(), 0);
+}
+
+GDX_TEST(self, async_never_resolving_wait_fails_with_timeout) {
+    gdextest::TestContext sub_ctx;
+    gdextest::SubAsyncPump pump;
+    bool pending = pump.start([](gdextest::TestContext &ctx) -> gdextest::Task {
+        // A 60-second wait with a 50 ms deadline: the pump must fail the test
+        // at the deadline instead of ever resuming the body.
+        co_await ctx.await_timer_ms(60000, 50);
+        GDX_FAIL("unreachable: the wait resolved before its timeout");
+    }, sub_ctx);
+    GDX_EXPECT_TRUE(pending);
+    int guard = 0;
+    while (pending && ++guard <= 100) { pending = pump.step(16); }
+    GDX_EXPECT_FALSE(pending);
+    GDX_EXPECT_EQ(sub_ctx.failure_count(), 1);
+    GDX_EXPECT_STR_CONTAINS(sub_ctx.failures()[0].message, "timed out");
+    // The body must never have resumed past the await.
+    GDX_EXPECT_EQ(sub_ctx.failures()[0].message.find("unreachable"), std::string::npos);
+}
+
+GDX_TEST(self, async_wait_without_driver_records_failure) {
+    gdextest::TestContext sub_ctx;
+    // Creating and resuming the task directly (no pump active) means co_await
+    // sees no driver: it must record a failure and continue, not suspend forever.
+    gdextest::Task task = [](gdextest::TestContext &ctx) -> gdextest::Task {
+        co_await ctx.await_frames(2);
+        GDX_EXPECT_TRUE(true);   // still runs; the await recorded the failure
+    }(sub_ctx);
+    task.resume();
+    GDX_EXPECT_TRUE(task.done());
+    GDX_EXPECT_EQ(sub_ctx.failure_count(), 1);
+    GDX_EXPECT_STR_CONTAINS(sub_ctx.failures()[0].message, "outside an async test");
+}
+
+GDX_TEST(self, async_isolate_timeout_fails_test) {
+    gdextest::TestContext sub_ctx;
+    gdextest::SubAsyncPump pump;
+    bool pending = pump.start([](gdextest::TestContext &ctx) -> gdextest::Task {
+        // Two 40 s waits: each is under the per-wait timeout, but together they
+        // exceed the per-test isolate budget (kDefaultIsolateTimeoutSec = 60 s).
+        co_await ctx.await_timer_ms(40000, 40000);
+        co_await ctx.await_timer_ms(40000, 40000);
+    }, sub_ctx);
+    GDX_EXPECT_TRUE(pending);
+    // The first wait resolves at t = 40 s; the second would resolve at t = 80 s,
+    // but the isolate budget fails the test at t = 60 s.
+    int guard = 0;
+    while (pending && ++guard <= 100) { pending = pump.step(20000); }
+    GDX_EXPECT_FALSE(pending);
+    GDX_EXPECT_EQ(sub_ctx.failure_count(), 1);
+    GDX_EXPECT_STR_CONTAINS(sub_ctx.failures()[0].message, "isolate");
+}
+
+GDX_TEST(self, async_json_reports_timeout_as_fail) {
+    const char *path = "gdextest_self_json_async_timeout.json";
+    int n = gdextest::run_sub_async_write_json([](gdextest::TestContext &ctx) -> gdextest::Task {
+        co_await ctx.await_timer_ms(60000, 50);
+        GDX_FAIL("unreachable");
+    }, path);
+    GDX_EXPECT_EQ(n, 1);
+    const std::string json = read_file(path);
+    std::remove(path);
+    GDX_EXPECT_STR_CONTAINS(json, "\"totals\":{\"pass\":0,\"fail\":1,\"skip\":0,\"crashed\":0}");
+    GDX_EXPECT_STR_CONTAINS(json, "\"status\":\"fail\"");
+    GDX_EXPECT_STR_CONTAINS(json, "timed out");
+}
+
 #endif // GDEXTEST_ENABLED

@@ -1,8 +1,16 @@
+// Runner: the Godot-facing test execution boundary (plan §5.5). Parses the
+// --gdextest-* options, selects tests, and drives them to completion — sync
+// bodies inline, async bodies (Milestone C) through a process_frame pump that
+// resumes suspended coroutines — then writes human + JSON output and exits via
+// SceneTree::quit(code) (0 = pass, 1 = failure, 2 = usage error).
 #include "runner.h"
 
+#include <coroutine>
 #include <cstdio>
 #include <ctime>
+#include <exception>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "context.h"
@@ -12,6 +20,8 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/time.hpp>
+#include <godot_cpp/variant/callable_method_pointer.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
@@ -217,6 +227,205 @@ TestResult run_one(const TestCase &test_case, void *engine_node) {
     result.skip_reason = context.skip_reason();
     return result;
 }
+
+// --- async frame pump (plan §7.2, Milestone C) -------------------------------
+// Sync tests still run inline. An async test is a coroutine: the runner starts
+// it, and when it co_awaits, the pump registers a process_frame callback and
+// returns control to the engine main loop. Each frame advances the current await
+// (frames remaining / elapsed time) and resumes the coroutine when it resolves.
+// Tests run one at a time in declaration order; timeouts are enforced per wait
+// (kDefaultTimeoutMs) and per test (kDefaultIsolateTimeoutSec).
+
+struct RunState {
+    Options options;
+    godot::SceneTree *tree = nullptr;
+    godot::Node *tree_node = nullptr;
+    std::vector<const TestCase *> selected;
+    std::vector<TestResult> results;
+    size_t next = 0;
+
+    // The async test currently suspended in the pump (one at a time).
+    const TestCase *current_case = nullptr;
+    TestContext current_ctx;
+    Task current_task;
+    int64_t test_start_ms = 0;
+
+    godot::Callable frame_callable;
+    bool connected = false;
+};
+
+RunState *g_run = nullptr;
+
+int64_t now_ms() {
+    godot::Time *time = godot::Time::get_singleton();
+    return time ? static_cast<int64_t>(time->get_ticks_msec()) : 0;
+}
+
+std::string async_test_label(const TestCase *tc) {
+    return std::string(tc->suite) + "." + std::string(tc->name);
+}
+
+void start_next_test(RunState &run);
+void finish_run(RunState *run);
+void on_engine_frame();
+
+// Collects the finished current async test into `run.results` and releases its
+// coroutine frame. The caller (on_engine_frame or start_next_test's loop)
+// advances to the next selected test.
+void collect_async_result(RunState &run) {
+    TestResult result;
+    result.test_case = run.current_case;
+    bool crashed = false;
+    bool skipped = false;
+    if (std::exception_ptr exception = run.current_task.exception()) {
+        try { std::rethrow_exception(exception); }
+        catch (const TestAborted &) { crashed = true; }
+        catch (const TestSkipped &) { skipped = true; }
+        catch (...) { crashed = true; }
+    }
+    result.crashed = crashed;
+    result.skipped = skipped || run.current_ctx.skipped();
+    result.skip_reason = run.current_ctx.skip_reason();
+    result.failure_count = run.current_ctx.failure_count();
+    result.failures = run.current_ctx.failures();
+    result.duration_ms = now_ms() - run.test_start_ms;
+    run.results.push_back(std::move(result));
+
+    g_active_ctx = nullptr;
+    AsyncCoordinator::instance().clear();
+    run.current_task = Task{};   // destroys the completed coroutine frame
+    run.current_case = nullptr;
+    run.current_ctx = TestContext{};
+    // The caller (on_engine_frame or start_next_test's loop) advances to the
+    // next test — never finish the run from here (start_next_test owns that).
+}
+
+// Fails the current async test with `message` (a timeout / isolate breach) and
+// releases its suspended coroutine frame. The caller advances to the next test.
+void fail_current_async(RunState &run, std::string message) {
+    run.current_ctx.fail(run.current_case ? run.current_case->file : "",
+                         run.current_case ? run.current_case->line : 0,
+                         std::move(message));
+    TestResult result;
+    result.test_case = run.current_case;
+    result.failure_count = run.current_ctx.failure_count();
+    result.failures = run.current_ctx.failures();
+    result.duration_ms = now_ms() - run.test_start_ms;
+    run.results.push_back(std::move(result));
+
+    g_active_ctx = nullptr;
+    AsyncCoordinator::instance().clear();
+    run.current_task = Task{};   // destroys the suspended coroutine frame
+    run.current_case = nullptr;
+    run.current_ctx = TestContext{};
+    // The caller advances to the next test (same rule as collect_async_result).
+}
+
+void ensure_connected(RunState &run) {
+    if (run.connected || !run.tree) return;
+    // callable_mp_static is a macro; it must be used unqualified.
+    run.frame_callable = callable_mp_static(&on_engine_frame);
+    run.tree->connect("process_frame", run.frame_callable);
+    run.connected = true;
+}
+
+// One engine process_frame tick: advance the current await, resume the suspended
+// coroutine when the await resolves, and enforce the time budgets.
+void on_engine_frame() {
+    RunState *run = g_run;
+    if (!run || !run->current_case) return;
+    // The engine pump owns the driver flag for the duration of its async tests.
+    // Sync tests (self-tests) run inline and may temporarily toggle it; re-assert
+    // it here so every engine-driven await suspends as expected.
+    AsyncCoordinator::instance().set_driver_active(true);
+    const int64_t now = now_ms();
+    const AwaitStatus status = AsyncCoordinator::instance().advance(now);
+    if (status == AwaitStatus::Pending) {
+        // Whole-test isolate budget: a chain of awaits must not run forever even
+        // when each individual wait is under its own per-wait timeout.
+        if (now - run->test_start_ms >= static_cast<int64_t>(kDefaultIsolateTimeoutSec) * 1000) {
+            fail_current_async(*run, "async test '" + async_test_label(run->current_case) +
+                               "' exceeded the per-test isolate timeout of " +
+                               std::to_string(kDefaultIsolateTimeoutSec) + " s");
+            start_next_test(*run);
+        }
+        return;
+    }
+    if (status == AwaitStatus::TimedOut) {
+        const AwaitRequest &request = AsyncCoordinator::instance().request();
+        fail_current_async(*run, "async test '" + async_test_label(run->current_case) +
+                           "' timed out: " + request.description + " did not resolve within " +
+                           std::to_string(request.timeout_ms) + " ms");
+        start_next_test(*run);
+        return;
+    }
+    // The await resolved: resume the suspended coroutine.
+    std::coroutine_handle<> handle = AsyncCoordinator::instance().current();
+    handle.resume();
+    if (handle.done()) {
+        collect_async_result(*run);
+        start_next_test(*run);
+        return;
+    }
+    // Resumed into another await; stamp its deadlines with the current clock.
+    AsyncCoordinator::instance().stamp(now);
+}
+
+// Runs sync tests inline; for an async test, starts its coroutine and, if it
+// suspends, connects the pump and waits for engine frames. Finishes the run
+// when no tests remain.
+void start_next_test(RunState &run) {
+    while (run.next < run.selected.size()) {
+        const TestCase *tc = run.selected[run.next++];
+        if (!tc->async_fn) {
+            run.results.push_back(run_one(*tc, run.tree_node));
+            continue;
+        }
+        // Async test: start the coroutine and run it until its first suspension.
+        // Re-assert the driver flag: sync tests that ran earlier (self-tests)
+        // may have cleared it via their own transient pumps.
+        AsyncCoordinator::instance().set_driver_active(true);
+        run.current_case = tc;
+        run.current_ctx = TestContext{};
+        if (run.tree_node) run.current_ctx.set_engine(run.tree_node);
+        run.test_start_ms = now_ms();
+        g_active_ctx = &run.current_ctx;
+        run.current_task = tc->async_fn(run.current_ctx);
+        run.current_task.resume();
+        if (run.current_task.done()) {
+            collect_async_result(run);
+            continue;   // completed without suspending; start the next test
+        }
+        // Suspended: stamp the await's deadlines, then wait for engine frames.
+        AsyncCoordinator::instance().stamp(run.test_start_ms);
+        if (!run.tree) {
+            fail_current_async(run, "async test '" + async_test_label(tc) +
+                               "' suspended but no live SceneTree is available to drive frames");
+            continue;
+        }
+        ensure_connected(run);
+        return;   // control returns to the engine main loop; the pump resumes us
+    }
+    finish_run(&run);
+}
+
+void finish_run(RunState *run) {
+    if (run->connected) {
+        run->tree->disconnect("process_frame", run->frame_callable);
+        run->connected = false;
+    }
+    write_human(run->results);
+    if (!run->options.json_path.empty()) write_json(run->options.json_path, run->results);
+    gdextest::shutdown_host();
+    bool failed = false;
+    for (const auto &result : run->results) {
+        failed = failed || result.crashed || result.failure_count != 0;
+    }
+    AsyncCoordinator::instance().set_driver_active(false);
+    g_run = nullptr;
+    if (run->tree) run->tree->quit(failed ? 1 : 0);
+    delete run;
+}
 } // namespace
 
 [[noreturn]] void TestContext::abort_test(const char *file, int line, std::string message) {
@@ -249,7 +458,90 @@ int run_sub_and_write_json(void (*body)(TestContext &), const char *path) {
     g_active_ctx = nullptr;
     // Synthetic case so the JSON document has a suite/name; the self-tests only
     // assert on status/totals/failures/reason, not on these identifiers.
-    static const TestCase sub_case{"self", "json_sub", nullptr, TAG_UNIT, "", 0};
+    static const TestCase sub_case{"self", "json_sub", nullptr, nullptr, TAG_UNIT, "", 0};
+    TestResult result;
+    result.test_case = &sub_case;
+    result.failure_count = context.failure_count();
+    result.failures = context.failures();
+    result.skipped = context.skipped();
+    result.skip_reason = context.skip_reason();
+    const std::vector<TestResult> results{result};
+    write_json(path, results);
+    return result.failure_count;
+}
+
+bool SubAsyncPump::start(std::function<Task(TestContext &)> body, TestContext &ctx) {
+    ctx_ = &ctx;
+    now_ms_ = 0;
+    test_start_ms_ = 0;
+    AsyncCoordinator::instance().set_driver_active(true);
+    g_active_ctx = &ctx;
+    task_ = body(ctx);
+    task_.resume();
+    if (task_.done()) {
+        finish();
+        return false;
+    }
+    AsyncCoordinator::instance().stamp(now_ms_);
+    return true;
+}
+
+bool SubAsyncPump::step(int64_t tick_ms) {
+    if (!ctx_) return false;   // not started, or already finished
+    now_ms_ += tick_ms;
+    const AwaitStatus status = AsyncCoordinator::instance().advance(now_ms_);
+    if (status == AwaitStatus::Pending) {
+        if (now_ms_ - test_start_ms_ >= static_cast<int64_t>(kDefaultIsolateTimeoutSec) * 1000) {
+            ctx_->fail("", 0, "async test exceeded the per-test isolate timeout of " +
+                              std::to_string(kDefaultIsolateTimeoutSec) + " s");
+            finish();
+            return false;
+        }
+        return true;
+    }
+    if (status == AwaitStatus::TimedOut) {
+        const AwaitRequest &request = AsyncCoordinator::instance().request();
+        ctx_->fail("", 0, "async test timed out: " + request.description +
+                          " did not resolve within " + std::to_string(request.timeout_ms) + " ms");
+        finish();
+        return false;
+    }
+    task_.resume();
+    if (task_.done()) {
+        finish();
+        return false;
+    }
+    AsyncCoordinator::instance().stamp(now_ms_);
+    return true;
+}
+
+void SubAsyncPump::finish() {
+    if (std::exception_ptr exception = task_.exception()) {
+        try { std::rethrow_exception(exception); }
+        catch (const TestAborted &) { /* failure already recorded on ctx_ */ }
+        catch (const TestSkipped &) { /* ctx_->skipped() set by skip() */ }
+        catch (const std::exception &error) {
+            ctx_->fail("", 0, std::string("unexpected exception in async test body: ") + error.what());
+        }
+        catch (...) {
+            ctx_->fail("", 0, "unexpected exception in async test body");
+        }
+    }
+    g_active_ctx = nullptr;
+    AsyncCoordinator::instance().clear();
+    AsyncCoordinator::instance().set_driver_active(false);
+    task_ = Task{};
+    ctx_ = nullptr;
+}
+
+int run_sub_async_write_json(std::function<Task(TestContext &)> body, const char *path) {
+    TestContext context;
+    SubAsyncPump pump;
+    pump.start(body, context);
+    int guard = 0;
+    while (pump.step(16) && ++guard < 100000) {}
+    // Synthetic case so the JSON document has a suite/name (see run_sub_and_write_json).
+    static const TestCase sub_case{"self", "json_sub_async", nullptr, nullptr, TAG_UNIT, "", 0};
     TestResult result;
     result.test_case = &sub_case;
     result.failure_count = context.failure_count();
@@ -280,15 +572,16 @@ void run_all_and_quit(void *tree_node) {
         if (tree) tree->quit(0);
         return;
     }
-    std::vector<TestResult> results;
-    results.reserve(selected.size());
-    for (const auto *test_case : selected) results.push_back(run_one(*test_case, tree_node));
-    write_human(results);
-    if (!options.json_path.empty()) write_json(options.json_path, results);
-    gdextest::shutdown_host();
-    bool failed = false;
-    for (const auto &result : results) failed = failed || result.crashed || result.failure_count != 0;
-    if (tree) tree->quit(failed ? 1 : 0);
+    auto *run = new RunState;
+    run->options = std::move(options);
+    run->tree = tree;
+    run->tree_node = static_cast<godot::Node *>(tree_node);
+    run->selected = selected;
+    run->results.reserve(selected.size());
+    // The driver flag is asserted by start_next_test / on_engine_frame right
+    // before each async resume, and cleared in finish_run.
+    g_run = run;
+    start_next_test(*run);
 }
 
 } // namespace gdextest

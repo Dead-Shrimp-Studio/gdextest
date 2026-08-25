@@ -64,6 +64,21 @@ GDX_TEST_T(my_extension, class_is_registered, TAG_INTEGRATION) {
 }
 ```
 
+**Async / multi-frame tests** (needs C++20 — the reusable `SConscript` compiles the test
+target with `-std=c++20`). Register with `GDX_TEST_ASYNC` and `co_await` engine waits; the
+runner suspends and resumes the body across `process_frame` ticks:
+
+```cpp
+GDX_TEST_ASYNC(my_extension, signal_settles_across_frames) {
+    co_await ctx.await_frames(2);            // let the engine advance 2 frames
+    GDX_EXPECT(my_service->is_settled());
+    co_return;
+}
+```
+
+Every wait has a timeout (default 30 s per wait, 60 s per test) so a never-resolving
+await fails the test instead of hanging CI. See `api-reference.md` → Async tests.
+
 ## 3. Configure the consumer contract
 
 The recommended configuration is structured by responsibility. Existing flat keys remain
