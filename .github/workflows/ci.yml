@@ -16,6 +16,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Run Python tool tests
+        run: |
+          set -euo pipefail
+          python3 tests/config_tests.py
+          python3 tests/generate_fixture_tests.py
+
       - name: Install scons
         run: python3 -m pip install scons
 
@@ -29,7 +35,7 @@ jobs:
       - name: Run tests headless
         run: |
           set -euo pipefail
-          GODOT="$GITHUB_WORKSPACE/Godot_v4.5-stable_linux.x86_64" ./gdextest test
+          GODOT="$GITHUB_WORKSPACE/Godot_v4.5-stable_linux.x86_64" ./gdextest test --json=testdata/results.json
 
       - name: Upload results JSON
         if: always()

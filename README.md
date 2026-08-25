@@ -7,9 +7,9 @@ can exercise both pure logic and live engine APIs (singletons, your own register
 `Variant`/`String` round-trips, …), and are CI-friendly via JSON output and test
 filtering/sharding.
 
-> **Status:** Milestone A is complete: the framework core, portable `HostConfig`, reference
-> fixture, headless execution, reusable consumer [`SConscript`](SConscript), structured
-> configuration, diagnostics, and external-consumer flow are working on Godot 4.5.
+> **Status:** Milestones A and B are complete: the framework core, portable `HostConfig`,
+> reference fixture, headless execution, structured configuration, diagnostics, JSON
+> output, and the CLI-driven external-consumer flow are working on Godot 4.5.
 
 ---
 
@@ -23,7 +23,8 @@ Prerequisites: `scons`, a C++17 toolchain, and a Godot **4.5** binary (this repo
 GODOT=/path/to/Godot_v4.5-stable_linux.x86_64 ./gdextest test
 ```
 
-The CLI also supports `./gdextest init`, `./gdextest list`, and `./gdextest clean`.
+The CLI also supports `./gdextest init`, `./gdextest doctor`, `./gdextest list`, and
+`./gdextest clean`.
 
 Or step by step:
 
@@ -129,41 +130,72 @@ godot --headless --editor --path testdata/project -- \
 
 The framework is a thin layer around your existing GDExtension build — there is no separate
 runner binary to install. You pull in the framework sources, compile them **into your test
-build**, and drive them through a tiny per-extension adapter.
+build**, and drive them through a tiny per-extension adapter. The CLI owns the whole loop:
+config, build, fixture generation, headless run, and JSON results.
 
 1. **Add the framework to your repo** (git submodule, mirroring the `extern/godot-cpp`
-   pattern used here): `git submodule add <this repo> extern/gdextest`.
+   pattern used here):
 
-2. **Write your suites** with `GDX_TEST(...)` and the assertion macros (above). Nothing
-   else is needed for pure-logic tests.
-
-3. **Build with the reusable `SConscript`** — it supplies the generic entry point and
-   adapter, compiles the framework plus your suites into a test-only shared object, and
-   generates a disposable fixture project. The minimal configuration is:
-
-   ```python
-   lib = env.SConscript(
-       "extern/gdextest/SConscript",
-       variant_dir="build/gdextest", duplicate=0,
-       exports={"env": env, "gdextest": {
-           "enabled": env.get("tests", False),
-           "suites": Glob("tests/*.cpp"),
-       }},
-   )
-   if lib:
-       Default(lib)
+   ```bash
+   git submodule add <this repo> extern/gdextest
+   git submodule update --init --recursive   # also pulls extern/gdextest/extern/godot-cpp
    ```
 
-4. **Run the generated fixture**: `godot --headless --editor --path
-   build/gdextest/project -- --gdextest-run --gdextest-json=results.json` and map the exit
-   code to your pipeline. No fixture files, manifest, plugin wrapper, or library symlink
-   need to be copied into the repository.
+2. **Generate the starter config** — `./gdextest init` writes a `.gdextest.toml` that
+   matches your layout (add `--ci` to also drop in a GitHub Actions workflow):
 
-5. **Customize only when needed**: provide `entry`, `adapter`, `fixture_dir`,
-   `entry_symbol`, `project_name`, or `native_extensions` in the `gdextest` exports when
-   the extension needs custom startup or additional native libraries. The default adapter
-   is intentionally a no-op bootstrap; extension-specific initialization remains an
-   explicit opt-in override.
+   ```bash
+   ./gdextest init --ci
+   ```
+
+3. **Write your suites** with `GDX_TEST(...)` and the assertion macros (above). Nothing
+   else is needed for pure-logic tests; tag `TAG_INTEGRATION` and include
+   `framework/engine.h` to reach the live engine.
+
+4. **Validate the environment once** — `./gdextest doctor` checks the config, framework
+   path, Godot version, SCons, and discovered test sources:
+
+   ```bash
+   ./gdextest doctor --godot /path/to/Godot
+   ```
+
+5. **Build and run** — one command builds the test library, generates the disposable
+   fixture, runs headless, and maps the exit code to your pipeline:
+
+   ```bash
+   ./gdextest test --godot /path/to/Godot --json=results.json
+   ```
+
+   Exit code `0` = green, `1` = red. Write `--json=results.json` for CI artifacts and use
+   `--shard=k/n` to parallelize.
+
+6. **Customize only when needed** — everything lives in `.gdextest.toml` (test sources,
+   host mode, fixture, output name). For extension-specific startup, register ordinary
+   function pointers with `gdextest::configure_host({&start, &stop})` from your
+   initialization path — no weak symbols or platform-specific linker behavior. A custom
+   `entry`/`adapter` remains available for the rare case the default host lifecycle isn't
+   enough.
+
+Under the hood, the CLI drives the reusable [`SConscript`](SConscript), which supplies the
+generic entry point and adapter, compiles the framework plus your suites into a test-only
+shared object with `GDEXTEST_ENABLED` defined, and generates the fixture project. If you
+prefer to wire it into your existing `SConstruct` directly, the minimal call is:
+
+```python
+lib = env.SConscript(
+    "extern/gdextest/SConscript",
+    variant_dir="build/gdextest", duplicate=0,
+    exports={"env": env, "gdextest": {
+        "enabled": env.get("tests", False),
+        "suites": Glob("tests/*.cpp"),
+    }},
+)
+if lib:
+    Default(lib)
+```
+
+No fixture files, manifest, plugin wrapper, or library symlink need to be copied into the
+repository — they're all generated.
 
 
 ## How it works
