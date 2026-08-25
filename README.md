@@ -7,9 +7,10 @@ can exercise both pure logic and live engine APIs (singletons, your own register
 `Variant`/`String` round-trips, …), and are CI-friendly via JSON output and test
 filtering/sharding.
 
-> **Status:** the framework core, runner, reference fixture, headless execution, and the
-> reusable consumer [`SConscript`](SConscript) are working (15 self + reference tests green
-> on Godot 4.5). Roadmap: [`.plans/gdextension-testing-framework.md`](.plans/gdextension-testing-framework.md).
+> **Status:** Milestone A is complete: the framework core, portable `HostConfig`, reference
+> fixture, headless execution, reusable consumer [`SConscript`](SConscript), structured
+> configuration, diagnostics, and external-consumer flow are working on Godot 4.5.
+> Roadmap: [`.plans/gdextension-testing-framework.md`](.plans/gdextension-testing-framework.md).
 
 ---
 
@@ -135,7 +136,9 @@ build**, and drive them through a tiny per-extension adapter.
    pattern used here): `git submodule add <this repo> extern/gdextest`.
 
 2. **Write your suites** with `GDX_TEST(...)` and the assertion macros (above). Nothing
-   else is needed for pure-logic tests.3. **Build with the reusable `SConscript`** — it supplies the generic entry point and
+   else is needed for pure-logic tests.
+
+3. **Build with the reusable `SConscript`** — it supplies the generic entry point and
    adapter, compiles the framework plus your suites into a test-only shared object, and
    generates a disposable fixture project. The minimal configuration is:
 
@@ -163,9 +166,6 @@ build**, and drive them through a tiny per-extension adapter.
    is intentionally a no-op bootstrap; extension-specific initialization remains an
    explicit opt-in override.
 
-
-> The `SConscript` wiring is done; the fixture project is still copy-the-template — this
-> repo's `testdata/project/` is the reference.
 
 ## How it works
 

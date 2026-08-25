@@ -127,7 +127,7 @@ The generated project contains
 the scan-safe `EditorPlugin` wrapper and points at the generated library, so there is no
 copying or symlink step.
 
-## 4. Customize startup only when needed
+## 5. Customize startup only when needed
 
 If your extension needs services bootstrapped before the tests run, configure the host from
 your extension's initialization code. Include `framework/host.h` and register ordinary
@@ -150,7 +150,7 @@ no-op, so consumers that need no setup provide nothing. The callback API is port
 GCC, Clang, and MSVC; a custom `adapter` or `entry` remains available only when the default
 host lifecycle itself is insufficient.
 
-## 5. Write a custom adapter (optional)
+## 6. Write a custom adapter (optional)
 
 If the default host is not enough, `adapter.cpp` is the **only file that should know your
 extension's wiring**. Model it on
@@ -192,7 +192,7 @@ void maybe_run(godot::Node *tree_node) {
 #endif // GDEXTEST_ENABLED
 ```
 
-## 6. Add a custom entry point (optional)
+## 7. Add a custom entry point (optional)
 
 Copy [`src/gdextest_entry.cpp`](../src/gdextest_entry.cpp) and rename the plugin class to
 match your extension. It registers an `EditorPlugin` whose `_ready()` calls your adapter.
@@ -216,7 +216,7 @@ GDExtensionBool GDE_EXPORT my_library_init(
 The `.gdextension` manifest in your fixture project must set `entry_symbol` to this
 function's name.
 
-## 7. Create a custom fixture project (optional)
+## 8. Create a custom fixture project (optional)
 
 Copy [`testdata/project/`](../testdata/project/) and adapt. Three pieces:
 
@@ -277,7 +277,7 @@ func _exit_tree() -> void:
         test_plugin = null
 ```
 
-## 8. Custom build details
+## 9. Custom build details
 
 For custom entry/adapter or output settings, call the framework's reusable [`SConscript`](../SConscript)
 `SConscript` (the env must already carry godot-cpp's include paths and `LIBS`). It compiles
@@ -310,7 +310,7 @@ project root. Optional extras your env can carry: `sanitize=true` (ASan/UBSan) a
 `coverage=true` flags are applied to `env` before the call and inherited by the test target
 (this repo's `SConstruct` is the working example).
 
-## 9. Run and wire into CI
+## 10. Run and wire into CI
 
 ```bash
 ./gdextest test --json=results.json

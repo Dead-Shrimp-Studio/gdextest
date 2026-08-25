@@ -61,7 +61,7 @@ lib = env.SConscript(
     duplicate=0,
     exports={"env": env, "gdextest": {
         "enabled": env["tests"],
-        "suites": None,
+        "suites": [str(path) for path in load_config(Dir("#").abspath).project_root.glob("tests/**/*.cpp")],
         "out_name": "libgdextest",
     }},
 )
