@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Build + headless run (Godot 4.5)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install scons
+        run: python3 -m pip install scons
+
+      - name: Download Godot 4.5 (Linux x86_64)
+        run: |
+          curl -fsSL -o godot.zip \
+            https://github.com/godotengine/godot/releases/download/4.5-stable/Godot_v4.5-stable_linux.x86_64.zip
+          unzip -o godot.zip
+          chmod +x Godot_v4.5-stable_linux.x86_64
+
+      - name: Build the test library
+        # Explicit build surfaces compile/link errors clearly (run_tests.sh rebuilds
+        # silently, so this step is a no-op cache hit for the run step below).
+        run: scons platform=linux target=template_debug tests=true -j"$(nproc)"
+
+      - name: Run tests headless
+        run: |
+          set -euo pipefail
+          GODOT="$GITHUB_WORKSPACE/Godot_v4.5-stable_linux.x86_64" ./run_tests.sh
+
+      - name: Upload results JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gdxtest-results
+          path: testdata/results.json
