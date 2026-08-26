@@ -18,6 +18,8 @@
 #include "registry.h"
 
 #include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/classes/object.hpp>
+#include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/time.hpp>
@@ -26,6 +28,16 @@
 #include <godot_cpp/variant/string.hpp>
 
 namespace gdextest {
+
+void TestContext::track_object(void *obj) {
+    auto *object = static_cast<godot::Object *>(obj);
+    if (object) tracked_objects_.push_back({object->get_instance_id()});
+}
+
+void TestContext::track_ref(void *ref) {
+    auto *counted = static_cast<godot::RefCounted *>(ref);
+    if (counted) tracked_refs_.push_back({ref, counted->get_reference_count()});
+}
 
 namespace {
 struct TestAborted {};
@@ -122,6 +134,7 @@ Filter to_filter(const Options &options) {
 struct TestResult {
     const TestCase *test_case = nullptr;
     int failure_count = 0;
+    int retries = 0;
     std::vector<Failure> failures;
     bool crashed = false;
     bool skipped = false;
@@ -139,7 +152,9 @@ void write_human(const std::vector<TestResult> &results) {
     std::printf("\n== gdextest: %d passed, %d failed, %d skipped ==\n", passed, failed, skipped);
     for (const auto &result : results) {
         const char *status = result.crashed || result.failure_count ? "FAIL" : result.skipped ? "SKIP" : "PASS";
-        std::printf("[%s] %s.%s  (%ld ms)\n", status, result.test_case->suite, result.test_case->name, result.duration_ms);
+        std::printf("[%s] %s.%s  (%ld ms)", status, result.test_case->suite, result.test_case->name, result.duration_ms);
+        if (result.retries) std::printf("  (retries: %d)", result.retries);
+        std::printf("\n");
         for (const auto &failure : result.failures)
             std::printf("    %s:%d: %s\n", failure.file.c_str(), failure.line, failure.message.c_str());
         if (result.skipped) std::printf("    skipped: %s\n", result.skip_reason.c_str());
@@ -195,7 +210,7 @@ void write_json(const std::string &path, const std::vector<TestResult> &results)
         if (result.skipped && !result.skip_reason.empty()) {
             std::fprintf(fp, ",\"reason\":\"%s\"", esc_json(result.skip_reason).c_str());
         }
-        std::fprintf(fp, ",\"duration_ms\":%ld,\"failures\":[", result.duration_ms);
+        std::fprintf(fp, ",\"duration_ms\":%ld,\"retries\":%d,\"failures\":[", result.duration_ms, result.retries);
         for (size_t j = 0; j < result.failures.size(); ++j) {
             const Failure &failure = result.failures[j];
             std::fprintf(fp, "%s{\"file\":\"%s\",\"line\":%d,\"message\":\"%s\"}",
@@ -208,23 +223,52 @@ void write_json(const std::string &path, const std::vector<TestResult> &results)
     std::fclose(fp);
 }
 
+void check_tracked_resources_impl(TestContext &context) {
+    for (const auto &tracked : context.tracked_objects()) {
+        if (godot::UtilityFunctions::instance_from_id(static_cast<int64_t>(tracked.id))) {
+            context.fail("", 0, "leak: tracked Object instance " + std::to_string(tracked.id) + " is still alive");
+        }
+    }
+    for (const auto &tracked : context.tracked_refs()) {
+        auto *ref = static_cast<godot::RefCounted *>(tracked.ptr);
+        if (!ref) continue;
+        auto *live = godot::UtilityFunctions::instance_from_id(static_cast<int64_t>(ref->get_instance_id()));
+        if (!live) {
+            context.fail("", 0, "uaf: tracked RefCounted instance is no longer alive");
+        } else if (ref->get_reference_count() > tracked.initial_count) {
+            context.fail("", 0, "leak: tracked RefCounted reference count increased from " +
+                                  std::to_string(tracked.initial_count) + " to " +
+                                  std::to_string(ref->get_reference_count()));
+        }
+    }
+}
+
 TestResult run_one(const TestCase &test_case, void *engine_node) {
     TestResult result;
     result.test_case = &test_case;
-    TestContext context;
-    if (engine_node) context.set_engine(engine_node);
-    g_active_ctx = &context;
     const auto start = std::clock();
-    try { test_case.fn(context); }
-    catch (const TestAborted &) { result.crashed = true; }
-    catch (const TestSkipped &) { result.skipped = true; }
-    catch (...) { result.crashed = true; }
-    g_active_ctx = nullptr;
+    const int max_retries = (test_case.tags & TAG_FLAKY) ? kDefaultFlakyRetries : 0;
+    for (int attempt = 0; attempt <= max_retries; ++attempt) {
+        TestContext context;
+        if (engine_node) context.set_engine(engine_node);
+        g_active_ctx = &context;
+        try { test_case.fn(context); }
+        catch (const TestAborted &) { /* failure is already recorded */ }
+        catch (const TestSkipped &) { /* context carries skip state */ }
+        catch (...) { context.fail(test_case.file, test_case.line, "unexpected exception in test body"); }
+        check_tracked_resources_impl(context);
+        g_active_ctx = nullptr;
+        result.failure_count = context.failure_count();
+        result.failures = context.failures();
+        result.skipped = context.skipped();
+        result.skip_reason = context.skip_reason();
+        if (result.skipped || result.failure_count == 0) {
+            result.retries = attempt;
+            break;
+        }
+        result.retries = attempt;
+    }
     result.duration_ms = (std::clock() - start) * 1000 / CLOCKS_PER_SEC;
-    result.failure_count = context.failure_count();
-    result.failures = context.failures();
-    result.skipped = result.skipped || context.skipped();
-    result.skip_reason = context.skip_reason();
     return result;
 }
 
@@ -273,6 +317,7 @@ void on_engine_frame();
 // coroutine frame. The caller (on_engine_frame or start_next_test's loop)
 // advances to the next selected test.
 void collect_async_result(RunState &run) {
+    check_tracked_resources_impl(run.current_ctx);
     TestResult result;
     result.test_case = run.current_case;
     bool crashed = false;
@@ -303,9 +348,11 @@ void collect_async_result(RunState &run) {
 // Fails the current async test with `message` (a timeout / isolate breach) and
 // releases its suspended coroutine frame. The caller advances to the next test.
 void fail_current_async(RunState &run, std::string message) {
+    check_tracked_resources_impl(run.current_ctx);
     run.current_ctx.fail(run.current_case ? run.current_case->file : "",
                          run.current_case ? run.current_case->line : 0,
                          std::move(message));
+    check_tracked_resources_impl(run.current_ctx);
     TestResult result;
     result.test_case = run.current_case;
     result.failure_count = run.current_ctx.failure_count();
@@ -461,6 +508,7 @@ int run_sub_and_write_json(void (*body)(TestContext &), const char *path) {
     static const TestCase sub_case{"self", "json_sub", nullptr, nullptr, TAG_UNIT, "", 0};
     TestResult result;
     result.test_case = &sub_case;
+    check_tracked_resources_impl(context);
     result.failure_count = context.failure_count();
     result.failures = context.failures();
     result.skipped = context.skipped();
@@ -544,6 +592,7 @@ int run_sub_async_write_json(std::function<Task(TestContext &)> body, const char
     static const TestCase sub_case{"self", "json_sub_async", nullptr, nullptr, TAG_UNIT, "", 0};
     TestResult result;
     result.test_case = &sub_case;
+    check_tracked_resources_impl(context);
     result.failure_count = context.failure_count();
     result.failures = context.failures();
     result.skipped = context.skipped();

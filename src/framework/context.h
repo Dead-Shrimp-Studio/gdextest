@@ -46,6 +46,14 @@ public:
     bool skipped() const { return skipped_; }
     const std::string &skip_reason() const { return skip_reason_; }
 
+    // Register a live Godot Object or RefCounted handle for teardown checks.
+    // The pointer is intentionally opaque here; implementation lives at the
+    // engine boundary in runner.cpp.
+    void track_object(void *obj);
+    void track_ref(void *ref);
+
+    const std::vector<std::string> &resource_failures() const { return resource_failures_; }
+
     // Live engine access for integration tests. The handle is opaque here so the
     // core stays free of Godot types; engine-boundary accessors live in
     // framework/engine.h and cast this handle to the real Node/SceneTree.
@@ -70,11 +78,16 @@ private:
     // self/sub invocations.
     void *engine_ = nullptr;
 
-    // Owned-object tracking (leak/UAF hooks; full impl lands at M4 per plan §7.4).
-    // Declared now so the assertion macros can reference ctx.track_* without #ifdef churn.
+private:
+    struct TrackedObject { uint64_t id = 0; };
+    struct TrackedRef { void *ptr = nullptr; int32_t initial_count = 0; };
+    std::vector<TrackedObject> tracked_objects_;
+    std::vector<TrackedRef> tracked_refs_;
+    std::vector<std::string> resource_failures_;
+
 public:
-    void track_object(void * /*obj*/) { /* M4 */ }
-    void track_ref(void * /*ref*/) { /* M4 */ }
+    const std::vector<TrackedObject> &tracked_objects() const { return tracked_objects_; }
+    const std::vector<TrackedRef> &tracked_refs() const { return tracked_refs_; }
 };
 
 } // namespace gdextest

@@ -9,6 +9,10 @@
 #include <string>
 #include <vector>
 
+namespace {
+int g_flaky_attempts = 0;
+}
+
 #include "framework/assert.h"
 #include "framework/registry.h"
 #include "framework/host.h"
@@ -30,6 +34,23 @@ bool bootstrap_called = false;
 bool shutdown_called = false;
 void mark_bootstrap() { bootstrap_called = true; }
 void mark_shutdown() { shutdown_called = true; }
+}
+
+GDEX_TEST_T(self, flaky_test_passes_after_retries, TAG_UNIT | TAG_FLAKY) {
+    ++g_flaky_attempts;
+    if (g_flaky_attempts < 3) GDEX_FAIL("intentional flaky failure");
+}
+
+GDEX_TEST(self, flaky_retry_metadata_is_registered) {
+    const auto &cases = gdextest::TestRegistry::instance().all();
+    bool found = false;
+    for (const auto &test_case : cases) {
+        if (std::string(test_case.name) == "flaky_test_passes_after_retries") {
+            found = true;
+            GDEX_EXPECT_TRUE((test_case.tags & gdextest::TAG_FLAKY) != 0);
+        }
+    }
+    GDEX_EXPECT_TRUE(found);
 }
 
 GDEX_TEST(self, host_config_invokes_portable_callbacks) {
