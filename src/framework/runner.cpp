@@ -423,8 +423,8 @@ void finish_run(RunState *run) {
     }
     AsyncCoordinator::instance().set_driver_active(false);
     g_run = nullptr;
-    if (run->tree) run->tree->call_deferred("quit", failed ? 1 : 0);
-    // delete run;
+    if (run->tree) run->tree->quit(failed ? 1 : 0);
+    delete run;
 }
 } // namespace
 
