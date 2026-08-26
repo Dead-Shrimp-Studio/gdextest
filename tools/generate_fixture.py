@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Iterable
@@ -145,13 +146,13 @@ def generate_fixture(*, project_root: str | os.PathLike[str], library_path: str 
                      project_source_root: str | os.PathLike[str] | None = None) -> None:
     """Create or refresh a generated fixture directory.
 
-    `plugin_class` is accepted as part of the public generator contract. The
-    built-in host currently uses `GdextestPlugin`; custom hosts can replace the
-    generated wrapper in a later phase without changing the SCons API.
+    `plugin_class` names the native EditorPlugin registered by the entry point;
+    the generated host wrapper instantiates it after the editor scan settles.
     """
-    del plugin_class
     if host_mode not in {"editor", "runtime"}:
         raise ValueError(f"unsupported gdextest host mode: {host_mode}")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", plugin_class):
+        raise ValueError(f"invalid plugin_class: {plugin_class!r}")
     root = Path(project_root)
     library = Path(library_path)
     addon = root / "addons" / "gdextest"
@@ -169,9 +170,11 @@ def generate_fixture(*, project_root: str | os.PathLike[str], library_path: str 
         encoding="utf-8")
     if host_mode == "editor":
         (addon / "plugin.cfg").write_text(PLUGIN_CFG, encoding="utf-8")
-        (addon / "plugin.gd").write_text(EDITOR_PLUGIN_GD, encoding="utf-8")
+        (addon / "plugin.gd").write_text(
+            EDITOR_PLUGIN_GD.replace("GdextestPlugin", plugin_class), encoding="utf-8")
     else:
-        (addon / "runtime.gd").write_text(RUNTIME_PLUGIN_GD, encoding="utf-8")
+        (addon / "runtime.gd").write_text(
+            RUNTIME_PLUGIN_GD.replace("GdextestPlugin", plugin_class), encoding="utf-8")
     (addon / manifest_basename).write_text(
         _manifest(entry_symbol, godot_version, library_key, library_basename),
         encoding="utf-8")
@@ -202,6 +205,7 @@ def main() -> int:
     parser.add_argument("--library-basename")
     parser.add_argument("--manifest-basename", default="gdextest.gdextension")
     parser.add_argument("--entry-symbol", default="gdextest_library_init")
+    parser.add_argument("--plugin-class", default="GdextestPlugin")
     parser.add_argument("--project-name", default="gdextest fixture")
     parser.add_argument("--godot-version", default="4.5")
     parser.add_argument("--library-key", default="linux.debug.x86_64")
@@ -216,6 +220,7 @@ def main() -> int:
         library_basename=basename,
         manifest_basename=args.manifest_basename,
         entry_symbol=args.entry_symbol,
+        plugin_class=args.plugin_class,
         project_name=args.project_name,
         godot_version=args.godot_version,
         library_key=args.library_key,

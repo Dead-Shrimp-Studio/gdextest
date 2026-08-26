@@ -18,11 +18,18 @@
 # The framework supplies the entry point, adapter, output name, and a generated
 # fixture project. `entry`, `adapter`, and fixture settings remain overrideable
 # for extensions with custom startup behavior.
+#
+# Config contract: values flow from the most specific to the least specific
+# source — the `gdextest` export wins, then the env vars the CLI sets
+# (`gdextest_SOURCES`, `gdextest_BOOTSTRAP`, `gdextest_HOST_MODE`), then the
+# consumer's `.gdextest.toml` (loaded here), then built-in defaults. This keeps
+# the TOML the single source of truth for the CLI-driven flow.
 
 Import("env")
 
 import importlib.util
 import os
+import sys
 
 from SCons.Errors import UserError
 from SCons.Script import Default
@@ -32,32 +39,67 @@ try:
 except Exception:
     gdextest = {}
 
+# --- config ---------------------------------------------------------------
+framework_root = Dir(".").srcnode()
+# Register in sys.modules before exec: the module's @dataclass resolves its
+# field types through sys.modules[__module__] at class-creation time.
+_config_spec = importlib.util.spec_from_file_location(
+    "gdextest_config_consumer", framework_root.File("tools/gdextest_config.py").abspath)
+_config_module = importlib.util.module_from_spec(_config_spec)
+sys.modules[_config_spec.name] = _config_module
+_config_spec.loader.exec_module(_config_module)
+
+
+def _load_toml_config():
+    """Load the consumer's .gdextest.toml as the default configuration."""
+    try:
+        return _config_module.load_config(Dir("#").abspath, framework_root.abspath)
+    except Exception as error:
+        raise UserError(f"gdextest: failed to load consumer config: {error}")
+
+
+toml_config = _load_toml_config()
+
+
+def _env(name: str, default=None):
+    return os.environ.get(name, default)
+
+
+def _argument(name: str, default=None):
+    try:
+        return ARGUMENTS.get(name, default)
+    except NameError:
+        return default
+
+
 # --- enabled? ----------------------------------------------------------------
 enabled = gdextest.get("enabled")
 if enabled is None:
     enabled = env.get("tests", False)
     if not enabled:
-        try:
-            enabled = ARGUMENTS.get("tests", "false").lower() in ("1", "true", "yes")
-        except NameError:
-            pass
+        enabled = _argument("tests", "false").lower() in ("1", "true", "yes", "on")
+# env["tests"] may arrive as a string from Variables; normalize so a literal
+# "false"/"0" disables instead of silently enabling (truthy string).
+if isinstance(enabled, str):
+    enabled = enabled.lower() in ("1", "true", "yes", "on")
 
 if not enabled:
     print("gdextest: disabled (pass tests=true or gdextest['enabled'])")
     Return()
 
 # --- paths and options -------------------------------------------------------
-framework_root = Dir(".").srcnode()
-out_dir = gdextest.get("out_dir", "bin")
-out_name = gdextest.get("out_name", "libgdextest")
+out_dir = gdextest.get("out_dir", toml_config.out_dir)
+out_name = gdextest.get("out_name", toml_config.out_name)
 
 # godot-cpp sets env["suffix"] (".linux.template_debug.x86_64"). Fall back
-# for hosts whose env did not go through godot-cpp's SConscript.
+# for hosts whose env did not go through godot-cpp's SConscript — including
+# `platform`/`target`/`arch` passed as scons ARGUMENTS, which is how the CLI
+# drives cross-compile and editor-only targets.
 suffix = env.get("suffix", "")
 if not suffix:
-    plat = env.get("platform", "")
-    tgt = env.get("target", "")
-    arch = env.get("arch", "x86_64")
+    plat = env.get("platform", _argument("platform", ""))
+    tgt = env.get("target", _argument("target", ""))
+    arch = env.get("arch", _argument("arch", "x86_64"))
     if plat and tgt:
         suffix = f".{plat}.{tgt}.{arch}"
 
@@ -86,10 +128,14 @@ framework_sources = [
 ]
 suite_sources = gdextest.get("suites")
 if suite_sources is None:
-    configured_sources = os.environ.get("GDEXTEST_SOURCES", "")
-    suite_sources = ([root_path(path) for path in configured_sources.split(os.pathsep)
-                      if path] if configured_sources else env.Glob("#tests/**/*.cpp"))
-bootstrap = gdextest.get("bootstrap", os.environ.get("GDEXTEST_BOOTSTRAP"))
+    configured_sources = _env("gdextest_SOURCES", "")
+    if configured_sources:
+        suite_sources = [root_path(path) for path in configured_sources.split(os.pathsep)
+                         if path]
+    else:
+        suite_sources = [str(path) for path in
+                         _config_module.discover_sources(toml_config)]
+bootstrap = gdextest.get("bootstrap", _env("gdextest_BOOTSTRAP", toml_config.bootstrap))
 bootstrap_path = env.File(root_path(bootstrap)) if bootstrap else None
 if bootstrap_path and bootstrap_path.exists():
     suite_sources = list(suite_sources) + [bootstrap_path]
@@ -107,14 +153,20 @@ test_env.Append(CPPPATH=[framework_root.Dir("src")])
 # vendored godot-cpp header warnings into every consumer build.
 godot_cpp_includes = [include for include in test_env.get("CPPPATH", [])
                       if "godot-cpp" in str(include)]
-for include in godot_cpp_includes:
-    test_env.Append(CCFLAGS=["-isystem", str(include)])
-test_env.Append(CCFLAGS=["-fPIC", "-Wall", "-Wextra"])
-# C++20 for coroutines (async tests, plan §7.2). Appended after godot-cpp's own
-# -std=c++17 in CXXFLAGS, so the last -std flag wins for this target only.
-# godot-cpp defaults to -fno-exceptions; the framework uses exceptions to abort
-# an individual test body without crossing an engine callback boundary.
-test_env.Append(CXXFLAGS=["-fexceptions", "-std=c++20"])
+_is_msvc = (test_env.get("PLATFORM") == "win32" or
+            os.path.basename(str(test_env.get("CC", ""))).lower().startswith("cl"))
+if _is_msvc:
+    for include in godot_cpp_includes:
+        test_env.Append(CCFLAGS=["/external:I", str(include)])
+    test_env.Append(CCFLAGS=["/W4"])
+    # C++20 for coroutines (async tests, plan §7.2) + exceptions (abort an
+    # individual test body without crossing an engine callback boundary).
+    test_env.Append(CXXFLAGS=["/std:c++20", "/EHsc"])
+else:
+    for include in godot_cpp_includes:
+        test_env.Append(CCFLAGS=["-isystem", str(include)])
+    test_env.Append(CCFLAGS=["-fPIC", "-Wall", "-Wextra"])
+    test_env.Append(CXXFLAGS=["-fexceptions", "-std=c++20"])
 
 if not test_env.get("LIBS"):
     print("gdextest: WARNING - env has no LIBS; did you wire godot-cpp before calling this SConscript?")
@@ -127,21 +179,25 @@ print(f"gdextest: test library -> {target}")
 # --- generated fixture -------------------------------------------------------
 generate_fixture = gdextest.get("generate_fixture", True)
 if generate_fixture:
-    fixture_dir = gdextest.get("fixture_dir", "build/gdextest/project")
+    fixture_dir = gdextest.get("fixture_dir", toml_config.fixture_dir)
     fixture_abs = os.path.join(env.Dir("#").abspath, fixture_dir)
-    project_name = gdextest.get("project_name", "gdextest fixture")
-    entry_symbol = gdextest.get("entry_symbol", "gdextest_library_init")
-    godot_version = gdextest.get("godot_version", "4.5")
-    host_mode = gdextest.get("host_mode", os.environ.get("GDEXTEST_HOST_MODE", "editor"))
-    manifest_name = gdextest.get("manifest_name", out_name + ".gdextension")
+    project_name = gdextest.get("project_name", toml_config.project_name)
+    entry_symbol = gdextest.get("entry_symbol", toml_config.entry_symbol)
+    plugin_class = gdextest.get("plugin_class", toml_config.plugin_class)
+    godot_version = gdextest.get("godot_version", toml_config.godot_version)
+    host_mode = gdextest.get("host_mode", _env("gdextest_HOST_MODE", toml_config.host_mode))
+    if host_mode not in ("editor", "runtime"):
+        raise UserError(f"gdextest: unsupported host_mode {host_mode!r} (expected 'editor' or 'runtime')")
+    manifest_name = gdextest.get("manifest_name",
+                                  toml_config.manifest_name or out_name + ".gdextension")
     library_basename = os.path.basename(target)
 
-    platform = env.get("platform", "linux")
-    target_name = env.get("target", "template_debug")
-    arch = env.get("arch", "x86_64")
+    platform = env.get("platform", _argument("platform", "linux"))
+    target_name = env.get("target", _argument("target", "template_debug"))
+    arch = env.get("arch", _argument("arch", "x86_64"))
     feature = "release" if target_name == "template_release" else "debug"
-    library_key = gdextest.get(
-        "library_key", f"{platform}.{feature}.{arch}")
+    library_key = gdextest.get("library_key", toml_config.library_key) or \
+        f"{platform}.{feature}.{arch}"
 
     host_targets = ([
         os.path.join(fixture_abs, "addons", "gdextest", "plugin.cfg"),
@@ -168,13 +224,14 @@ if generate_fixture:
             library_basename=library_basename,
             manifest_basename=manifest_name,
             entry_symbol=entry_symbol,
+            plugin_class=plugin_class,
             project_name=project_name,
             godot_version=godot_version,
             library_key=library_key,
-            native_extensions=gdextest.get("native_extensions", []),
-            extension_library=gdextest.get("extension_library"),
-            extension_manifest=gdextest.get("extension_manifest"),
-            fixture_assets=gdextest.get("fixture_assets", []),
+            native_extensions=gdextest.get("native_extensions", toml_config.native_extensions),
+            extension_library=gdextest.get("extension_library", toml_config.extension_library),
+            extension_manifest=gdextest.get("extension_manifest", toml_config.extension_manifest),
+            fixture_assets=gdextest.get("fixture_assets", toml_config.fixture_assets),
             host_mode=host_mode,
             project_source_root=env.Dir("#").abspath,
         )

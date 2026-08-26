@@ -35,9 +35,15 @@ disposable fixture, and runs Godot headlessly. On subsequent runs it keeps your 
 re-checks the environment, and repeats the build/run. It never overwrites an existing
 `.gdextest.toml`; edit that file when your layout needs customization.
 
+Repositories that need `SConstruct` wiring (and optionally a custom entry point) can get
+them generated: `./gdextest scaffold --apply` patches `SConstruct` (with a `.bak` backup),
+writes `testsupport/entry.cpp` and a smoke suite from your TOML values, and runs the
+doctor checks. The complete flow is `gdextest init → gdextest scaffold --apply → gdextest test`.
+
 Prerequisites are `scons`, a C++17 toolchain, and a Godot **4.5** binary (the framework
 pins `extern/godot-cpp` to the `4.5` branch). The CLI also provides explicit
-`./gdextest init`, `./gdextest doctor`, `./gdextest list`, and `./gdextest clean` commands.
+`./gdextest init`, `./gdextest doctor`, `./gdextest scaffold`, `./gdextest list`, and
+`./gdextest clean` commands.
 
 ## Writing tests
 
@@ -203,11 +209,11 @@ Use `--json=results.json` for CI artifacts and `--shard=k/n` to parallelize.
 
 ### 4. Customize only when needed
 
-Everything lives in `.gdextest.toml` (test sources, host mode, fixture, output name). For
-extension-specific startup, register ordinary function pointers with
-`gdextest::configure_host({&start, &stop})` from your initialization path — no weak symbols
-or platform-specific linker behavior. A custom `entry`/`adapter` remains available for the
-rare case the default host lifecycle isn't enough.
+Everything lives in `.gdextest.toml` (test sources, host mode, fixture, output name,
+plugin class, extra scons build args). For extension-specific startup, register ordinary
+function pointers with `gdextest::configure_host({&start, &stop})` from your initialization
+path — no weak symbols or platform-specific linker behavior. A custom `entry`/`adapter`
+remains available for the rare case the default host lifecycle isn't enough.
 
 ### 5. Build integration details
 

@@ -8,6 +8,7 @@ sources = ["tests/**/*.cpp"]
 [gdextest.host]
 mode = "editor"
 entry_symbol = "gdextest_library_init"
+plugin_class = "GdextestPlugin"
 
 [gdextest.fixture]
 directory = "build/gdextest/project"
@@ -18,3 +19,6 @@ assets = []
 [gdextest.output]
 directory = "bin"
 name = "libgdextest"
+
+[gdextest.build]
+args = []

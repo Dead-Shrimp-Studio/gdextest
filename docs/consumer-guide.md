@@ -117,6 +117,7 @@ exclude = ["tests/helpers/**"]
 [gdextest.host]
 mode = "editor" # editor or runtime
 entry_symbol = "gdextest_library_init"
+plugin_class = "GdextestPlugin" # native EditorPlugin registered by your entry
 bootstrap = "tests/bootstrap.cpp" # optional
 
 [gdextest.fixture]
@@ -128,6 +129,9 @@ assets = ["tests/fixtures/**"]
 [gdextest.output]
 directory = "bin"
 name = "libmy_extension_tests"
+
+[gdextest.build]
+args = [] # extra scons args, e.g. ["platform=windows", "target=editor", "arch=x86_64"]
 ```
 
 The `test` preflight validates the configuration, framework path, Godot version, SCons,
@@ -135,6 +139,12 @@ discovered test sources, and any configured consumer extension files on every ru
 `./gdextest doctor --godot /path/to/Godot` directly when you want these diagnostics without
 a build. `gdextest test` and `gdextest list` use the same configuration, so source discovery
 and fixture settings cannot silently diverge.
+
+The reusable `SConscript` loads this file itself, so the TOML is the single source of
+truth for every flow: `gdextest test` sets a handful of `gdextest_*` environment variables
+for the build (sources, host mode, bootstrap), and the SConscript treats them — and any
+`gdextest` exports in your `SConstruct` — as overrides layered on top of the TOML values.
+A value you set in the TOML is never silently ignored by the build.
 
 `host.mode = "editor"` generates the scan-safe `EditorPlugin` fixture and runs Godot with
 `--headless --editor`. `host.mode = "runtime"` generates an autoload fixture and runs plain
@@ -163,6 +173,16 @@ flow through `./gdextest test`, or bootstrap a new repository with `./gdextest i
 The generated project contains
 the scan-safe `EditorPlugin` wrapper and points at the generated library, so there is no
 copying or symlink step.
+
+`./gdextest scaffold` automates the wiring for an existing repository: with `--apply` it
+patches `SConstruct` (writing `SConstruct.gdextest.bak` first), generates
+`testsupport/entry.cpp` and a smoke suite from your TOML values, and finishes with the
+doctor checks. The end-to-end flow is `gdextest init → gdextest scaffold --apply → gdextest test`.
+
+If your build needs `platform`/`target`/`arch` arguments, list them under
+`[gdextest.build] args` — the CLI appends them to every scons invocation, and the SConscript
+reads the same keys from `ARGUMENTS` when computing the library suffix for hosts that do
+not wire godot-cpp's own `env["suffix"]`.
 
 ## 6. Customize startup only when needed
 
@@ -231,9 +251,14 @@ void maybe_run(godot::Node *tree_node) {
 
 ## 8. Add a custom entry point (optional)
 
-Copy [`src/gdextest_entry.cpp`](../src/gdextest_entry.cpp) and rename the plugin class to
-match your extension. It registers an `EditorPlugin` whose `_ready()` calls your adapter.
-Use the godot-cpp 4.5 entry API exactly (the pre-4.5 form does not compile):
+Run `./gdextest scaffold --apply` to generate `testsupport/entry.cpp` from a template,
+using the `plugin_class` and `entry_symbol` from your TOML — no manual copy-and-rename.
+(`testsupport/` sits outside the default `tests/**/*.cpp` suite glob so the entry compiles
+exactly once.)
+The generated file registers an `EditorPlugin` whose `_ready()` calls the framework
+adapter. The generated fixture wrapper instantiates exactly the class named by
+`[gdextest.host] plugin_class`, so keep the two in sync. Use the godot-cpp 4.5 entry API
+exactly (the pre-4.5 form does not compile):
 
 ```cpp
 extern "C" {
@@ -330,8 +355,8 @@ lib = env.SConscript(
     variant_dir="build/gdextest", duplicate=0,   # keep objects out of the submodule
     exports={"env": env, "gdextest": {
         "enabled":  env.get("tests", False),    # or omit -> `scons tests=true`
-        "entry":    "testsupport/entry.cpp",    # required
-        "adapter":  "testsupport/adapter.cpp",  # required
+        "entry":    "testsupport/entry.cpp",    # custom entry (optional)
+        "adapter":  "testsupport/adapter.cpp",  # custom adapter (optional)
         "suites":   Glob("tests/*.cpp"),
         "out_dir":  "bin",
         "out_name": "libgdextest",

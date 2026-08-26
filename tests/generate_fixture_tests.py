@@ -55,7 +55,63 @@ def test_generated_plugin_uses_scan_safe_host() -> None:
         assert "did not finish before timeout" in plugin
 
 
+def test_generated_plugin_uses_configured_plugin_class() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "libtest.so"
+        source.write_bytes(b"test-library")
+        MODULE.generate_fixture(
+            project_root=root / "project",
+            library_path=source,
+            library_basename="libtest.so",
+            manifest_basename="gdextest.gdextension",
+            plugin_class="MyTestPlugin",
+        )
+        plugin = (root / "project" / "addons" / "gdextest" / "plugin.gd").read_text()
+        assert "MyTestPlugin.new()" in plugin
+        assert "GdextestPlugin.new()" not in plugin
+
+
+def test_generated_runtime_host_uses_configured_plugin_class() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "libtest.so"
+        source.write_bytes(b"test-library")
+        MODULE.generate_fixture(
+            project_root=root / "project",
+            library_path=source,
+            library_basename="libtest.so",
+            manifest_basename="gdextest.gdextension",
+            host_mode="runtime",
+            plugin_class="MyTestPlugin",
+        )
+        runtime = (root / "project" / "addons" / "gdextest" / "runtime.gd").read_text()
+        assert "MyTestPlugin.new()" in runtime
+        assert "GdextestPlugin.new()" not in runtime
+
+
+def test_invalid_plugin_class_rejected() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "libtest.so"
+        source.write_bytes(b"test-library")
+        try:
+            MODULE.generate_fixture(
+                project_root=root / "project",
+                library_path=source,
+                library_basename="libtest.so",
+                manifest_basename="gdextest.gdextension",
+                plugin_class="not a class",
+            )
+            assert False, "expected ValueError for an invalid plugin class name"
+        except ValueError as error:
+            assert "plugin_class" in str(error)
+
+
 if __name__ == "__main__":
     test_generated_manifest_is_referenced()
     test_generated_plugin_uses_scan_safe_host()
+    test_generated_plugin_uses_configured_plugin_class()
+    test_generated_runtime_host_uses_configured_plugin_class()
+    test_invalid_plugin_class_rejected()
     print("fixture generator tests: ok")

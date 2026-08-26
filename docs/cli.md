@@ -35,12 +35,20 @@ godot --headless --editor --path <fixture> -- --gdextest-run [--gdextest-* optio
 | `./gdextest init --ci` | Create the starter config and GitHub Actions workflow |
 | `./gdextest init --force` | Regenerate the starter config and any requested workflow |
 | `./gdextest doctor` | Run environment checks without building or running tests |
+| `./gdextest scaffold [--apply]` | Wire `SConstruct`, generate entry + smoke suite, run doctor |
 | `./gdextest list` | Build the test library and list selected tests |
 | `./gdextest clean` | Remove generated test output |
 
 `test` combines the useful setup steps: missing config initialization, doctor preflight,
 build, fixture generation, and the headless Godot run. A doctor failure returns `2` and
 prevents the build from starting.
+
+`scaffold` turns a fresh consumer repo into a wired one: without `--apply` it reports that
+`SConstruct` does not call the framework SConscript; with `--apply` it patches the file
+(backing it up as `SConstruct.gdextest.bak` first and verifying the patch parses),
+generates `testsupport/entry.cpp` and a smoke suite from the TOML values, and finishes
+with the doctor checks. The intended flow is `gdextest init → gdextest scaffold --apply →
+gdextest test`.
 
 ## Flags
 
@@ -52,6 +60,10 @@ prevents the build from starting.
 | `--gdextest-shuffle[=<seed>]` | Randomize run order | Fixed seed reproduces the order; `--gdextest-shuffle` alone uses seed 1 |
 | `--gdextest-shard=<k>/<n>` | Run shard `k` (0-based) of `n` | Stable hash assignment — same test always lands in the same shard |
 | `--gdextest-json=<path>` | Write machine-readable results | The CLI resolves the path to an absolute path before launching Godot |
+
+Unknown `--gdextest-*` options are not rejected by the CLI: `gdextest test` passes them
+through to the runner verbatim, so new runner flags work without a CLI update (typos are
+still caught by the runner's exit code `2`).
 
 Filter grammar (see `docs/api-reference.md` → `Filter`): `*` and `?` wildcards,
 case-sensitive, matched against `suite.name`, the suite, or the name.
@@ -183,5 +195,7 @@ Environment-variable trigger (useful when you can't touch the command line):
 GDX_RUN_TESTS=1 godot --headless --editor --path testdata/project
 ```
 
-The repo's `./run_tests.sh` wraps build + wiring + the standard invocation (and points
-`XDG_DATA_HOME` at a temp dir so `user://` stays hermetic).
+The repo's `./run_tests.sh` wraps build + wiring + the standard invocation. The CLI keeps
+`user://` hermetic itself: `test` and `list` wipe `build/gdextest/user-data` before every
+run and point `XDG_DATA_HOME` at it, so residue from a previous run never leaks into
+"should not exist at start" assertions.

@@ -30,8 +30,10 @@ class Config:
     test_sources: list[str] = field(default_factory=lambda: ["tests/**/*.cpp"])
     test_exclude: list[str] = field(default_factory=list)
     entry_symbol: str = "gdextest_library_init"
+    plugin_class: str = "GdextestPlugin"
     project_name: str = "gdextest fixture"
-    manifest_name: str = "gdextest.gdextension"
+    # None -> the SConscript derives it from the output name (out_name + ".gdextension").
+    manifest_name: str | None = None
     library_key: str | None = None
     host_mode: str = "editor"
     bootstrap: str | None = None
@@ -39,6 +41,7 @@ class Config:
     extension_library: str | None = None
     extension_manifest: str | None = None
     fixture_assets: list[str] = field(default_factory=list)
+    build_args: list[str] = field(default_factory=list)
     ci_provider: str = "github"
 
     @property
@@ -63,6 +66,11 @@ class Config:
             errors.append("test_sources must contain at least one glob")
         if not self.entry_symbol or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.entry_symbol):
             errors.append(f"invalid entry_symbol: {self.entry_symbol!r}")
+        if not self.plugin_class or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.plugin_class):
+            errors.append(f"invalid plugin_class: {self.plugin_class!r}")
+        for argument in self.build_args:
+            if "=" not in argument or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:=[^\s]+)?", argument):
+                errors.append(f"invalid build arg: {argument!r} (expected key=value)")
         if self.extension_library and not self.extension_manifest:
             errors.append("extension_manifest is required when extension_library is set")
         if self.extension_manifest and not self.extension_library:
@@ -132,6 +140,7 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
     host = values.get("host", {})
     fixture = values.get("fixture", {})
     output = values.get("output", {})
+    build = values.get("build", {})
     consumer = values.get("consumer_extension", {})
 
     # Flat keys remain supported so existing consumers do not need a migration commit.
@@ -148,8 +157,9 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
         test_sources=list(_first(tests, "sources", default=_first(values, "test_sources", default=["tests/**/*.cpp"]))),
         test_exclude=list(_first(tests, "exclude", default=[])),
         entry_symbol=str(_first(host, "entry_symbol", default=_first(values, "entry_symbol", default="gdextest_library_init"))),
+        plugin_class=str(_first(host, "plugin_class", default=_first(values, "plugin_class", default="GdextestPlugin"))),
         project_name=str(_first(fixture, "project_name", default=_first(values, "project_name", default="gdextest fixture"))),
-        manifest_name=str(_first(fixture, "manifest_name", default=_first(values, "manifest_name", default="gdextest.gdextension"))),
+        manifest_name=_first(fixture, "manifest_name", default=_first(values, "manifest_name")),
         library_key=_first(fixture, "library_key", default=_first(values, "library_key")),
         host_mode=str(_first(host, "mode", default="editor")),
         bootstrap=_first(host, "bootstrap", default=_first(values, "bootstrap")),
@@ -157,6 +167,7 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
         extension_library=_first(consumer, "library", default=_first(values, "extension_library")),
         extension_manifest=_first(consumer, "manifest", default=_first(values, "extension_manifest")),
         fixture_assets=list(_first(fixture, "assets", default=_first(values, "fixture_assets", default=[]))),
+        build_args=list(_first(build, "args", default=[])),
         ci_provider=str(_first(values, "ci_provider", default="github")),
     )
     return config
