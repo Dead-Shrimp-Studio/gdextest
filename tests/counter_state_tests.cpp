@@ -21,31 +21,31 @@ private:
 
 }  // namespace
 
-GDX_TEST(counter, starts_at_zero_unbumped) {
+GDEX_TEST(counter, starts_at_zero_unbumped) {
     Counter c;
-    GDX_EXPECT_EQ(c.value(), 0);
-    GDX_EXPECT_FALSE(c.was_bumped());
+    GDEX_EXPECT_EQ(c.value(), 0);
+    GDEX_EXPECT_FALSE(c.was_bumped());
 }
 
-GDX_TEST(counter, bump_increments_and_sets_flag) {
+GDEX_TEST(counter, bump_increments_and_sets_flag) {
     Counter c;
     c.bump();
-    GDX_EXPECT_EQ(c.value(), 1);
-    GDX_EXPECT_TRUE(c.was_bumped());
+    GDEX_EXPECT_EQ(c.value(), 1);
+    GDEX_EXPECT_TRUE(c.was_bumped());
 }
 
-GDX_TEST(counter, multiple_bumps_accumulate) {
+GDEX_TEST(counter, multiple_bumps_accumulate) {
     Counter c;
     for (int i = 0; i < 5; ++i) c.bump();
-    GDX_EXPECT_EQ(c.value(), 5);
+    GDEX_EXPECT_EQ(c.value(), 5);
 }
 
-GDX_TEST(counter, reset_clears_state) {
+GDEX_TEST(counter, reset_clears_state) {
     Counter c;
     c.bump(); c.bump();
     c.reset();
-    GDX_EXPECT_EQ(c.value(), 0);
-    GDX_EXPECT_FALSE(c.was_bumped());
+    GDEX_EXPECT_EQ(c.value(), 0);
+    GDEX_EXPECT_FALSE(c.was_bumped());
 }
 
 #endif // GDEXTEST_ENABLED

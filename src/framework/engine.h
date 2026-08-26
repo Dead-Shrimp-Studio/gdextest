@@ -1,6 +1,6 @@
 // Engine access for integration tests (engine boundary, like runner.h).
 //
-// Pure C++ test bodies (default GDX_TEST) never include this. Suites that want the
+// Pure C++ test bodies (default GDEX_TEST) never include this. Suites that want the
 // live engine include it and opt into engine access via the opaque handle stored on
 // their TestContext by the runner. It is the ONLY place besides runner.cpp / the
 // adapter that touches godot-cpp types.

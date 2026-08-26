@@ -61,13 +61,13 @@ printed to stdout before exiting.
     skipped: precondition not met: GDX_BENCHMARK_SERVICE is unset
 ```
 
-Async tests (`GDX_TEST_ASYNC`, see `api-reference.md`) appear with their wall-clock
+Async tests (`GDEX_TEST_ASYNC`, see `api-reference.md`) appear with their wall-clock
 duration, e.g. `[PASS] async.timer_await_resumes_after_elapsed_time  (104 ms)`. A test
 whose wait never resolves is failed by the runner with a `timed out` failure line — it
 counts as `failed` and exits `1`, so a hung test can never stall a pipeline.
 
 The summary line always shows the `skipped` count. A row is `[SKIP]` (with its reason)
-when the body called `GDX_SKIP`. Skipped tests never count toward `failed` and never
+when the body called `GDEX_SKIP`. Skipped tests never count toward `failed` and never
 change the exit code.
 
 `--gdextest-list` prints:
@@ -108,13 +108,13 @@ Written by `--gdextest-json=<path>`. Schema:
 }
 ```
 
-- `status` is `"crashed"` when the body threw (including `GDX_ABORT_TEST`) or the run was
+- `status` is `"crashed"` when the body threw (including `GDEX_ABORT_TEST`) or the run was
   otherwise interrupted; a crashed test also counts toward `fail`.
-- `status` is `"skipped"` when the body called `GDX_SKIP`; the optional `reason` field
+- `status` is `"skipped"` when the body called `GDEX_SKIP`; the optional `reason` field
   carries the skip message. A skipped test counts toward `totals.skip`, never `fail`.
 - An async test whose wait timed out is reported with `status` `"fail"` and a failure
   message containing `timed out` — same schema, no special fields.
-- `totals.skip` is the number of tests skipped via `GDX_SKIP` (0 when none).
+- `totals.skip` is the number of tests skipped via `GDEX_SKIP` (0 when none).
 - Strings are JSON-escaped; control characters become `\uXXXX`.
 
 ## Examples

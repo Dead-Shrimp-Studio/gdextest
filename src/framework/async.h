@@ -14,10 +14,10 @@
 
 namespace gdextest {
 
-// --- Task: the coroutine type behind GDX_TEST_ASYNC -------------------------
+// --- Task: the coroutine type behind GDEX_TEST_ASYNC -------------------------
 // A lazily-started coroutine: the body begins on the first resume() and runs
 // until it co_awaits (suspending) or completes. Exceptions thrown by the body
-// (GDX_ABORT_TEST / GDX_SKIP / crashes) are captured into the promise and
+// (GDEX_ABORT_TEST / GDEX_SKIP / crashes) are captured into the promise and
 // surfaced through exception() after the task completes, so resume() never
 // propagates out of the runner's frame.
 class Task {
@@ -139,7 +139,7 @@ private:
 };
 
 // --- Awaitables ---------------------------------------------------------------
-// Used as `co_await ctx.await_frames(2)` inside GDX_TEST_ASYNC bodies.
+// Used as `co_await ctx.await_frames(2)` inside GDEX_TEST_ASYNC bodies.
 
 class FrameAwaiter {
 public:
@@ -149,7 +149,7 @@ public:
     bool await_ready() const noexcept { return frames_ <= 0; }
     bool await_suspend(std::coroutine_handle<> handle) {
         if (!AsyncCoordinator::instance().driver_active()) {
-            ctx_->fail("", 0, "co_await ctx.await_frames(...) used outside an async test run (GDX_TEST_ASYNC)");
+            ctx_->fail("", 0, "co_await ctx.await_frames(...) used outside an async test run (GDEX_TEST_ASYNC)");
             return false;  // don't suspend; the body continues with the failure recorded
         }
         AwaitRequest request;
@@ -176,7 +176,7 @@ public:
     bool await_ready() const noexcept { return duration_ms_ <= 0; }
     bool await_suspend(std::coroutine_handle<> handle) {
         if (!AsyncCoordinator::instance().driver_active()) {
-            ctx_->fail("", 0, "co_await ctx.await_timer_ms(...) used outside an async test run (GDX_TEST_ASYNC)");
+            ctx_->fail("", 0, "co_await ctx.await_timer_ms(...) used outside an async test run (GDEX_TEST_ASYNC)");
             return false;
         }
         AwaitRequest request;

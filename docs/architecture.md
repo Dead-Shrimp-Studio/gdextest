@@ -54,7 +54,7 @@ The most important design constraint, repeated in comments throughout the code:
    and (if needed) the hook point.
 4. **Assertions record, they never throw.** A failing `GDX_EXPECT_*` appends a `Failure` to
    the test's `TestContext` and execution continues, so one test reports every failing
-   check. The single exception is `GDX_ABORT_TEST`, which throws a private `TestAborted`
+   check. The single exception is `GDEX_ABORT_TEST`, which throws a private `TestAborted`
    that is caught *inside the runner's own frame* — it never crosses an engine callback
    boundary.
 5. **The runner is single-threaded.** Sync tests run inline, one after another. Async tests
@@ -84,7 +84,7 @@ The most important design constraint, repeated in comments throughout the code:
    `--gdextest-run` in either of Godot's two argument lists (before or after `--`).
 5. **Run.** `run_all_and_quit(tree_node)` parses the `--gdextest-*` options from the user
    args and filters/shards/shuffles the registry. Sync bodies run inline with a fresh
-   `TestContext`. An async body (`GDX_TEST_ASYNC`) is a coroutine: the runner starts it and,
+   `TestContext`. An async body (`GDEX_TEST_ASYNC`) is a coroutine: the runner starts it and,
    when it `co_await`s `ctx.await_frames(n)` / `ctx.await_timer_ms(ms)`, connects a
    `process_frame` pump that resumes it once the wait resolves (or fails it on timeout).
    When every test is done it prints human output (plus JSON if `--gdextest-json=` was
@@ -105,12 +105,12 @@ up, and a `quit()` from there is dropped — the editor hangs indefinitely. See
 
 | Decision | Rationale |
 | --- | --- |
-| `TestContext&` injected into every test body | Keeps assertions free of global state; the runner owns the context, and `GDX_ABORT_TEST` can still record on the active context via a thread-local-style pointer |
+| `TestContext&` injected into every test body | Keeps assertions free of global state; the runner owns the context, and `GDEX_ABORT_TEST` can still record on the active context via a thread-local-style pointer |
 | Failures recorded, not thrown | One test reports all failures; nothing propagates across engine callbacks |
 | `Filter` mirrors googletest glob grammar | Familiar to users; supports `suite.*`, negatives, and matching against `suite.name`, `suite`, or `name` |
 | Stable-hash sharding | The same test always lands in the same shard, so shards are disjoint across runs and CI parallelism is reproducible |
 | Seeded shuffle (LCG + Fisher–Yates) | Reproducible randomized order for finding order-dependent bugs |
-| Async tests are C++20 coroutines (`Task` + `co_await`), not threads | Coroutines suspend on the Godot main thread and are resumed by the `process_frame` pump — no locking, no engine calls off the main thread; a plain sync body is unchanged (`GDX_TEST` stays a function pointer) |
+| Async tests are C++20 coroutines (`Task` + `co_await`), not threads | Coroutines suspend on the Godot main thread and are resumed by the `process_frame` pump — no locking, no engine calls off the main thread; a plain sync body is unchanged (`GDEX_TEST` stays a function pointer) |
 | One async test in flight at a time, declaration order | Keeps results deterministic and avoids interleaving; the pump advances one await per tick |
 | Framework core ships in `src/framework/`, entry + adapter in `src/`, suites in `tests/` | The core is host-agnostic; entry/adapter are the engine-boundary templates; `tests/` is this repo's own reference usage |
 

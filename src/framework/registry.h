@@ -61,7 +61,7 @@ private:
     std::vector<TestCase> cases_;
 };
 
-// Static registrar: the GDX_TEST macro constructs one of these; its ctor calls add().
+// Static registrar: the GDEX_TEST macro constructs one of these; its ctor calls add().
 struct Registrar {
     Registrar(const TestCase &tc) { TestRegistry::instance().add(tc); }
 };
@@ -71,18 +71,18 @@ struct Registrar {
 // Auto-registration macro. Declares a test fn taking TestContext& ctx, registers it
 // via a static Registrar, then opens the body. `suite`/`name` must be identifiers.
 // The body sees `ctx` in scope, so GDX_EXPECT_* macros resolve it by name.
-#define GDX_TEST(suite, name)                                                        \
+#define GDEX_TEST(suite, name)                                                        \
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx);            \
     static const ::gdextest::Registrar gdx_reg_##suite##_##name{                     \
         ::gdextest::TestCase{ #suite, #name, &gdx_test_##suite##_##name, nullptr,   \
                               ::gdextest::TAG_UNIT, __FILE__, __LINE__ } };        \
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx)
 
-// Tagged variant: GDX_TEST_T(suite, name, TAG_UNIT | TAG_SLOW, ...)
+// Tagged variant: GDEX_TEST_T(suite, name, TAG_UNIT | TAG_SLOW, ...)
 // The Registrar initializer runs inside an immediately-invoked lambda that brings
 // the gdextest namespace into scope, so bare tag names (TAG_INTEGRATION, …) resolve
 // exactly as the docs describe, no matter what namespace the caller is in.
-#define GDX_TEST_T(suite, name, tags)                                                \
+#define GDEX_TEST_T(suite, name, tags)                                                \
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx);             \
     static const ::gdextest::Registrar gdx_reg_##suite##_##name{ []() {              \
         using namespace ::gdextest;                                                   \
@@ -91,19 +91,19 @@ struct Registrar {
     }() };                                                                             \
     static void gdx_test_##suite##_##name(::gdextest::TestContext &ctx)
 
-// Async variant: GDX_TEST_ASYNC(suite, name) registers a coroutine body tagged
+// Async variant: GDEX_TEST_ASYNC(suite, name) registers a coroutine body tagged
 // TAG_ASYNC. The body may `co_await ctx.await_frames(n)` / `ctx.await_timer_ms(ms)`
 // to suspend across engine frames; the runner's frame pump resumes it (plan §7.2,
 // Milestone C). The body must not use a bare `return;` — use `co_return;` instead.
-#define GDX_TEST_ASYNC(suite, name)                                                   \
+#define GDEX_TEST_ASYNC(suite, name)                                                   \
     static ::gdextest::Task gdx_test_##suite##_##name(::gdextest::TestContext &ctx);  \
     static const ::gdextest::Registrar gdx_reg_##suite##_##name{                      \
         ::gdextest::TestCase{ #suite, #name, nullptr, &gdx_test_##suite##_##name,     \
                               ::gdextest::TAG_ASYNC, __FILE__, __LINE__ } };         \
     static ::gdextest::Task gdx_test_##suite##_##name(::gdextest::TestContext &ctx)
 
-// Tagged async variant (bare tag names resolve like GDX_TEST_T).
-#define GDX_TEST_ASYNC_T(suite, name, tags)                                           \
+// Tagged async variant (bare tag names resolve like GDEX_TEST_T).
+#define GDEX_TEST_ASYNC_T(suite, name, tags)                                           \
     static ::gdextest::Task gdx_test_##suite##_##name(::gdextest::TestContext &ctx);  \
     static const ::gdextest::Registrar gdx_reg_##suite##_##name{ []() {               \
         using namespace ::gdextest;                                                   \

@@ -40,7 +40,7 @@ exit code tells you the result: **0** = all passed (skips do not fail the run),
 
 ## Writing tests
 
-Suites are C++ files using the `GDX_TEST` macro and the `GDX_EXPECT_*` assertions. A test
+Suites are C++ files using the `GDEX_TEST` macro and the `GDX_EXPECT_*` assertions. A test
 body receives a `TestContext&` named `ctx` (injected by the runner), so macros reference it
 automatically:
 
@@ -48,14 +48,14 @@ automatically:
 #include "framework/assert.h"
 #include "framework/registry.h"
 
-GDX_TEST(string_utils, trim_strips_both_ends) {
-    GDX_EXPECT_STR_EQ(trim("  hello  "), "hello");
+GDEX_TEST(string_utils, trim_strips_both_ends) {
+    GDEX_EXPECT_STR_EQ(trim("  hello  "), "hello");
 }
 
-GDX_TEST(counter, bump_increments) {
+GDEX_TEST(counter, bump_increments) {
     Counter c;
     c.bump();
-    GDX_EXPECT_EQ(c.value(), 1);
+    GDEX_EXPECT_EQ(c.value(), 1);
 }
 ```
 
@@ -65,36 +65,36 @@ failing check:
 | Macro | Checks |
 | --- | --- |
 | `GDX_EXPECT(cond)`, `GDX_EXPECT_TRUE/FALSE` | boolean conditions |
-| `GDX_EXPECT_EQ/NE/LT/LE/GT/GE(a, b)` | comparisons with value formatting |
-| `GDX_EXPECT_NEAR(a, b, eps)` | floating-point tolerance |
-| `GDX_EXPECT_STR_EQ(a, b)`, `GDX_EXPECT_STR_CONTAINS(h, n)` | string comparisons |
-| `GDX_EXPECT_NULL(p)`, `GDX_EXPECT_NOT_NULL(p)` | pointer checks |
-| `GDX_FAIL(msg)`, `GDX_ABORT_TEST(msg)` | unconditional failure / abort the test |
-| `GDX_SKIP(msg)` | record the test as skipped for a runtime reason and stop the body |
+| `GDEX_EXPECT_EQ/NE/LT/LE/GT/GE(a, b)` | comparisons with value formatting |
+| `GDEX_EXPECT_NEAR(a, b, eps)` | floating-point tolerance |
+| `GDEX_EXPECT_STR_EQ(a, b)`, `GDEX_EXPECT_STR_CONTAINS(h, n)` | string comparisons |
+| `GDEX_EXPECT_NULL(p)`, `GDEX_EXPECT_NOT_NULL(p)` | pointer checks |
+| `GDEX_FAIL(msg)`, `GDEX_ABORT_TEST(msg)` | unconditional failure / abort the test |
+| `GDEX_SKIP(msg)` | record the test as skipped for a runtime reason and stop the body |
 
-`GDX_TEST_T(suite, name, tags)` registers with tags (`TAG_UNIT`, `TAG_INTEGRATION`,
+`GDEX_TEST_T(suite, name, tags)` registers with tags (`TAG_UNIT`, `TAG_INTEGRATION`,
 `TAG_SLOW`, `TAG_FLAKY`, … — see `src/framework/config.h`). Tag names resolve bare, so write
-`GDX_TEST_T(engine, spins_up, TAG_INTEGRATION)` exactly as shown. This repo's reference
+`GDEX_TEST_T(engine, spins_up, TAG_INTEGRATION)` exactly as shown. This repo's reference
 suites live in [`tests/`](tests/).
 
 ### Async / multi-frame tests
 
 A test can suspend across engine frames and resume later — e.g. to observe a frame
 counter advance, wait for a signal to settle, or time a real operation. Register it
-with `GDX_TEST_ASYNC` (tagged `TAG_ASYNC`; `GDX_TEST_ASYNC_T(suite, name, tags)` for
+with `GDEX_TEST_ASYNC` (tagged `TAG_ASYNC`; `GDEX_TEST_ASYNC_T(suite, name, tags)` for
 extra tags) and `co_await` a wait on its context. The body is a C++20 coroutine; use
 `co_return;` instead of a bare `return;`:
 
 ```cpp
-GDX_TEST_ASYNC(async, engine_frames_advance) {
+GDEX_TEST_ASYNC(async, engine_frames_advance) {
     godot::Engine *engine = godot::Engine::get_singleton();
     const int64_t before = static_cast<int64_t>(engine->get_process_frames());
     co_await ctx.await_frames(2);                 // suspend across 2 process frames
-    GDX_EXPECT_GE(static_cast<int64_t>(engine->get_process_frames()) - before, 2);
+    GDEX_EXPECT_GE(static_cast<int64_t>(engine->get_process_frames()) - before, 2);
 
     const int64_t start = godot::Time::get_singleton()->get_ticks_msec();
     co_await ctx.await_timer_ms(100);             // or wait on wall-clock time
-    GDX_EXPECT_GE(godot::Time::get_singleton()->get_ticks_msec() - start, 100);
+    GDEX_EXPECT_GE(godot::Time::get_singleton()->get_ticks_msec() - start, 100);
 }
 ```
 
@@ -117,9 +117,9 @@ on the test's context:
 #include "framework/engine.h"
 #include "framework/registry.h"
 
-GDX_TEST_T(engine, can_build_scene_graph, TAG_INTEGRATION) {
+GDEX_TEST_T(engine, can_build_scene_graph, TAG_INTEGRATION) {
     godot::SceneTree *tree = gdextest::engine_tree(ctx);   // live engine tree
-    GDX_EXPECT_NOT_NULL(static_cast<void *>(tree));
+    GDEX_EXPECT_NOT_NULL(static_cast<void *>(tree));
     godot::Node *child = memnew(godot::Node);
     child->set_name("temp");
     tree->get_root()->add_child(child);
@@ -131,7 +131,7 @@ GDX_TEST_T(engine, can_build_scene_graph, TAG_INTEGRATION) {
 
 `gdextest::engine_tree(ctx)` is the live `SceneTree`; `gdextest::engine_node(ctx)` is the
 host `Node` the adapter ran from. These return null for pure (non-engine-triggered)
-invocations, so guard with `GDX_EXPECT_NOT_NULL` before dereferencing. Because the engine
+invocations, so guard with `GDEX_EXPECT_NOT_NULL` before dereferencing. Because the engine
 handle is an opaque `void*` on `TestContext`, the framework core stays Godot-free.
 
 ## Command-line flags
@@ -181,7 +181,7 @@ config, build, fixture generation, headless run, and JSON results.
    ./gdextest init --ci
    ```
 
-3. **Write your suites** with `GDX_TEST(...)` and the assertion macros (above). Nothing
+3. **Write your suites** with `GDEX_TEST(...)` and the assertion macros (above). Nothing
    else is needed for pure-logic tests; tag `TAG_INTEGRATION` and include
    `framework/engine.h` to reach the live engine.
 
@@ -258,7 +258,7 @@ repository — they're all generated.
 
 ## Gotchas
 
-- In `GDX_TEST_ASYNC` bodies use `co_return;` — a bare `return;` is rejected by the
+- In `GDEX_TEST_ASYNC` bodies use `co_return;` — a bare `return;` is rejected by the
   compiler inside a coroutine.
 - The editor plugin script must `extend EditorPlugin` directly — extending the native
   `GdextestPlugin` is rejected by the plugin manager.

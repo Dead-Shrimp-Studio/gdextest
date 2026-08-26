@@ -2,7 +2,7 @@
 // value-formatting boundary (String/Variant/etc.); the core stays std::string.
 //
 // All macros record failures via TestContext::fail and continue (never throw), except
-// GDX_ABORT_TEST which throws TestAborted caught inside the runner's own frame.
+// GDEX_ABORT_TEST which throws TestAborted caught inside the runner's own frame.
 #pragma once
 
 #include <cmath>
@@ -51,45 +51,45 @@ inline std::string fmt_cmp(const char *op, const char *aexpr, const char *bexpr,
 // Each macro captures the current TestContext via `ctx` (a name the framework's runner
 // injects into each test body). Suite authors write GDX_EXPECT_* exactly as documented.
 
-#define GDX_RECORD_(msg) (ctx).fail(__FILE__, __LINE__, (msg))
-#define GDX_RECORD_EXPR_(expr, msg) GDX_RECORD_(std::string(#expr) + " — " + (msg))
+#define GDEX_RECORD_(msg) (ctx).fail(__FILE__, __LINE__, (msg))
+#define GDEX_RECORD_EXPR_(expr, msg) GDEX_RECORD_(std::string(#expr) + " — " + (msg))
 
-#define GDX_EXPECT(cond) do { if (!(cond)) GDX_RECORD_EXPR_(cond, "condition false"); } while (0)
-#define GDX_EXPECT_TRUE(cond)  GDX_EXPECT(cond)
-#define GDX_EXPECT_FALSE(cond) do { if ((cond)) GDX_RECORD_EXPR_(cond, "condition true"); } while (0)
+#define GDEX_EXPECT(cond) do { if (!(cond)) GDEX_RECORD_EXPR_(cond, "condition false"); } while (0)
+#define GDEX_EXPECT_TRUE(cond)  GDEX_EXPECT(cond)
+#define GDEX_EXPECT_FALSE(cond) do { if ((cond)) GDEX_RECORD_EXPR_(cond, "condition true"); } while (0)
 
-#define GDX_EXPECT_EQ(a, b) do { \
-    if (!((a) == (b))) GDX_RECORD_(::gdextest::fmt_eq(#a, #b, (a), (b))); } while (0)
-#define GDX_EXPECT_NE(a, b) do { \
-    if (((a) == (b))) GDX_RECORD_(::gdextest::fmt_cmp("!=", #a, #b, (a), (b))); } while (0)
-#define GDX_EXPECT_LT(a, b) do { \
-    if (!((a) <  (b))) GDX_RECORD_(::gdextest::fmt_cmp("<",  #a, #b, (a), (b))); } while (0)
-#define GDX_EXPECT_LE(a, b) do { \
-    if (!((a) <= (b))) GDX_RECORD_(::gdextest::fmt_cmp("<=", #a, #b, (a), (b))); } while (0)
-#define GDX_EXPECT_GT(a, b) do { \
-    if (!((a) >  (b))) GDX_RECORD_(::gdextest::fmt_cmp(">",  #a, #b, (a), (b))); } while (0)
-#define GDX_EXPECT_GE(a, b) do { \
-    if (!((a) >= (b))) GDX_RECORD_(::gdextest::fmt_cmp(">=", #a, #b, (a), (b))); } while (0)
+#define GDEX_EXPECT_EQ(a, b) do { \
+    if (!((a) == (b))) GDEX_RECORD_(::gdextest::fmt_eq(#a, #b, (a), (b))); } while (0)
+#define GDEX_EXPECT_NE(a, b) do { \
+    if (((a) == (b))) GDEX_RECORD_(::gdextest::fmt_cmp("!=", #a, #b, (a), (b))); } while (0)
+#define GDEX_EXPECT_LT(a, b) do { \
+    if (!((a) <  (b))) GDEX_RECORD_(::gdextest::fmt_cmp("<",  #a, #b, (a), (b))); } while (0)
+#define GDEX_EXPECT_LE(a, b) do { \
+    if (!((a) <= (b))) GDEX_RECORD_(::gdextest::fmt_cmp("<=", #a, #b, (a), (b))); } while (0)
+#define GDEX_EXPECT_GT(a, b) do { \
+    if (!((a) >  (b))) GDEX_RECORD_(::gdextest::fmt_cmp(">",  #a, #b, (a), (b))); } while (0)
+#define GDEX_EXPECT_GE(a, b) do { \
+    if (!((a) >= (b))) GDEX_RECORD_(::gdextest::fmt_cmp(">=", #a, #b, (a), (b))); } while (0)
 
-#define GDX_EXPECT_NEAR(a, b, eps) do { \
+#define GDEX_EXPECT_NEAR(a, b, eps) do { \
     if (std::abs(static_cast<double>((a)) - static_cast<double>((b))) > static_cast<double>(eps)) \
-        GDX_RECORD_(::gdextest::fmt_cmp("near", #a, #b, (a), (b))); } while (0)
+        GDEX_RECORD_(::gdextest::fmt_cmp("near", #a, #b, (a), (b))); } while (0)
 
-#define GDX_EXPECT_STR_EQ(a, b) do { \
-    if (std::string(a) != std::string(b)) GDX_RECORD_(::gdextest::fmt_eq(#a, #b, std::string(a), std::string(b))); } while (0)
-#define GDX_EXPECT_STR_CONTAINS(hay, needle) do { \
+#define GDEX_EXPECT_STR_EQ(a, b) do { \
+    if (std::string(a) != std::string(b)) GDEX_RECORD_(::gdextest::fmt_eq(#a, #b, std::string(a), std::string(b))); } while (0)
+#define GDEX_EXPECT_STR_CONTAINS(hay, needle) do { \
     if (std::string(hay).find(needle) == std::string::npos) \
-        GDX_RECORD_(std::string("expected ") + #hay + " to contain " + #needle); } while (0)
+        GDEX_RECORD_(std::string("expected ") + #hay + " to contain " + #needle); } while (0)
 
-#define GDX_EXPECT_NULL(ptr)    do { if ((ptr) != nullptr) GDX_RECORD_EXPR_(ptr, "expected null"); } while (0)
-#define GDX_EXPECT_NOT_NULL(ptr) do { if ((ptr) == nullptr) GDX_RECORD_EXPR_(ptr, "expected non-null"); } while (0)
+#define GDEX_EXPECT_NULL(ptr)    do { if ((ptr) != nullptr) GDEX_RECORD_EXPR_(ptr, "expected null"); } while (0)
+#define GDEX_EXPECT_NOT_NULL(ptr) do { if ((ptr) == nullptr) GDEX_RECORD_EXPR_(ptr, "expected non-null"); } while (0)
 
-#define GDX_FAIL(msg) do { GDX_RECORD_(std::string(msg)); } while (0)
-#define GDX_ABORT_TEST(msg) \
+#define GDEX_FAIL(msg) do { GDEX_RECORD_(std::string(msg)); } while (0)
+#define GDEX_ABORT_TEST(msg) \
     ::gdextest::TestContext::abort_test(__FILE__, __LINE__, (msg))
 
 // Skips the current test for a runtime reason and stops the body. The test is
 // recorded in the `skip` totals (not pass/fail) with the given reason. Usually
 // called from an early guard when a precondition/fixture/service is unavailable.
-#define GDX_SKIP(msg) \
+#define GDEX_SKIP(msg) \
     ::gdextest::TestContext::skip(__FILE__, __LINE__, (msg))

@@ -17,20 +17,20 @@ std::string trim(const std::string &s) {
 }
 }  // namespace
 
-GDX_TEST(string_utils, trim_strips_both_ends) {
-    GDX_EXPECT_STR_EQ(trim("  hello  "), "hello");
+GDEX_TEST(string_utils, trim_strips_both_ends) {
+    GDEX_EXPECT_STR_EQ(trim("  hello  "), "hello");
 }
 
-GDX_TEST(string_utils, trim_empty_returns_empty) {
-    GDX_EXPECT_STR_EQ(trim("    "), "");
+GDEX_TEST(string_utils, trim_empty_returns_empty) {
+    GDEX_EXPECT_STR_EQ(trim("    "), "");
 }
 
-GDX_TEST(string_utils, trim_preserves_internal_spaces) {
-    GDX_EXPECT_STR_EQ(trim("  a b c  "), "a b c");
+GDEX_TEST(string_utils, trim_preserves_internal_spaces) {
+    GDEX_EXPECT_STR_EQ(trim("  a b c  "), "a b c");
 }
 
-GDX_TEST(string_utils, trim_no_op_on_clean_input) {
-    GDX_EXPECT_STR_EQ(trim("hello"), "hello");
+GDEX_TEST(string_utils, trim_no_op_on_clean_input) {
+    GDEX_EXPECT_STR_EQ(trim("hello"), "hello");
 }
 
 #endif // GDEXTEST_ENABLED

@@ -14,7 +14,7 @@ the suites and exits with pass/fail. Release builds are untouched.
 your repo/
   extern/gdextest/          # this framework (git submodule)
   src/…                     # your extension sources (untouched by the framework)
-  tests/                    # your GDX_TEST suites
+  tests/                    # your GDEX_TEST suites
   SConstruct                # add the test target (see Build)
   build/gdextest/project/    # generated fixture (disposable)
 ```
@@ -41,10 +41,10 @@ surface:
 #include "framework/registry.h"
 #include "my_extension/math_utils.h"   // your code under test
 
-GDX_TEST(math_utils, clamp_keeps_value_in_range) {
-    GDX_EXPECT_EQ(clamp(5, 0, 10), 5);
-    GDX_EXPECT_EQ(clamp(-1, 0, 10), 0);
-    GDX_EXPECT_EQ(clamp(42, 0, 10), 10);
+GDEX_TEST(math_utils, clamp_keeps_value_in_range) {
+    GDEX_EXPECT_EQ(clamp(5, 0, 10), 5);
+    GDEX_EXPECT_EQ(clamp(-1, 0, 10), 0);
+    GDEX_EXPECT_EQ(clamp(42, 0, 10), 10);
 }
 ```
 
@@ -57,19 +57,19 @@ engine.h) get null from both — the engine is opt-in:
 ```cpp
 #include "framework/engine.h"
 
-GDX_TEST_T(my_extension, class_is_registered, TAG_INTEGRATION) {
-    GDX_EXPECT_NE(godot::OS::get_singleton()->get_processor_count(), 0);
+GDEX_TEST_T(my_extension, class_is_registered, TAG_INTEGRATION) {
+    GDEX_EXPECT_NE(godot::OS::get_singleton()->get_processor_count(), 0);
     godot::SceneTree *tree = gdextest::engine_tree(ctx);   // live engine tree
-    GDX_EXPECT_NOT_NULL(static_cast<void *>(tree));
+    GDEX_EXPECT_NOT_NULL(static_cast<void *>(tree));
 }
 ```
 
 **Async / multi-frame tests** (needs C++20 — the reusable `SConscript` compiles the test
-target with `-std=c++20`). Register with `GDX_TEST_ASYNC` and `co_await` engine waits; the
+target with `-std=c++20`). Register with `GDEX_TEST_ASYNC` and `co_await` engine waits; the
 runner suspends and resumes the body across `process_frame` ticks:
 
 ```cpp
-GDX_TEST_ASYNC(my_extension, signal_settles_across_frames) {
+GDEX_TEST_ASYNC(my_extension, signal_settles_across_frames) {
     co_await ctx.await_frames(2);            // let the engine advance 2 frames
     GDX_EXPECT(my_service->is_settled());
     co_return;

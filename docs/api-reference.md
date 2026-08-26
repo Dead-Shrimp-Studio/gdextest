@@ -8,40 +8,40 @@ include setup — this repo adds `src/` to `CPPPATH`).
 
 Header: `framework/registry.h`.
 
-### `GDX_TEST(suite, name)` / `GDX_TEST_T(suite, name, tags)`
+### `GDEX_TEST(suite, name)` / `GDEX_TEST_T(suite, name, tags)`
 
 Declares and registers a test. `suite` and `name` must be C++ identifiers (they are
 stringified for display and used in filter globs as `suite.name`). The body receives a
 `TestContext&` named `ctx`, which the assertion macros reference automatically:
 
 ```cpp
-GDX_TEST(counter, bump_increments) {
+GDEX_TEST(counter, bump_increments) {
     Counter c;
     c.bump();
-    GDX_EXPECT_EQ(c.value(), 1);
+    GDEX_EXPECT_EQ(c.value(), 1);
 }
 
-GDX_TEST_T(slow_suite, heavy_compute, TAG_SLOW) {
+GDEX_TEST_T(slow_suite, heavy_compute, TAG_SLOW) {
     // ...
 }
 ```
 
 Registration happens through a static `Registrar` whose constructor calls
 `TestRegistry::instance().add(...)`, so tests are registered at library load time — before
-any engine interaction. `GDX_TEST` assigns `TAG_UNIT` by default.
+any engine interaction. `GDEX_TEST` assigns `TAG_UNIT` by default.
 
-### `GDX_TEST_ASYNC(suite, name)` / `GDX_TEST_ASYNC_T(suite, name, tags)`
+### `GDEX_TEST_ASYNC(suite, name)` / `GDEX_TEST_ASYNC_T(suite, name, tags)`
 
 Declares and registers an **async test** (Milestone C): a C++20 coroutine body that may
-`co_await` engine waits (see [Async tests](#async-tests)). `GDX_TEST_ASYNC` tags the test
+`co_await` engine waits (see [Async tests](#async-tests)). `GDEX_TEST_ASYNC` tags the test
 `TAG_ASYNC`; the `_T` variant takes explicit tags. The body receives `TestContext& ctx`
 and must end with `co_return;` (a bare `return;` is not allowed inside a coroutine):
 
 ```cpp
-GDX_TEST_ASYNC(async, frames_advance) {
+GDEX_TEST_ASYNC(async, frames_advance) {
     const int64_t before = engine->get_process_frames();
     co_await ctx.await_frames(2);
-    GDX_EXPECT_GE(engine->get_process_frames() - before, 2);
+    GDEX_EXPECT_GE(engine->get_process_frames() - before, 2);
     co_return;
 }
 ```
@@ -115,7 +115,7 @@ Selection semantics (see `registry.cpp`):
 Header: `framework/async.h` (pure C++ core — no Godot types; the engine-boundary pump
 lives in `runner.cpp`). Async tests let a body suspend across engine frames and resume
 later, driven by the runner's `process_frame` pump. Suites register them with
-`GDX_TEST_ASYNC` / `GDX_TEST_ASYNC_T` and `co_await` a wait on the test's context:
+`GDEX_TEST_ASYNC` / `GDEX_TEST_ASYNC_T` and `co_await` a wait on the test's context:
 
 ```cpp
 co_await ctx.await_frames(2);      // resume after 2 process_frame ticks
@@ -125,9 +125,9 @@ co_await ctx.await_frames(5, 500); // same, but fail if the wait exceeds 500 ms
 
 ### The coroutine type: `gdextest::Task`
 
-`Task` is the coroutine return type behind `GDX_TEST_ASYNC`. The runner creates the
+`Task` is the coroutine return type behind `GDEX_TEST_ASYNC`. The runner creates the
 coroutine lazily and drives it: `resume()` runs the body until it suspends (a `co_await`)
-or completes. Exceptions thrown by the body — `GDX_ABORT_TEST`, `GDX_SKIP`, crashes — are
+or completes. Exceptions thrown by the body — `GDEX_ABORT_TEST`, `GDEX_SKIP`, crashes — are
 captured into the promise and reported the same way as for sync tests (a thrown
 `TestAborted` marks the test crashed, `TestSkipped` skips it). Test authors never touch
 `Task` directly.
@@ -152,7 +152,7 @@ failed too.
 - Async tests run **one at a time, in declaration order** — the pump never interleaves
   two bodies, so results stay deterministic.
 - Async tests require the live engine (the pump advances on real frames). If a body
-  `co_await`s with no pump active — e.g. `co_await` inside a plain `GDX_TEST` — the await
+  `co_await`s with no pump active — e.g. `co_await` inside a plain `GDEX_TEST` — the await
   records a failure ("used outside an async test run") and the body continues.
 - Self-tests verify the machinery headlessly through `SubAsyncPump`, which simulates
   `process_frame` ticks and a monotonic ms clock (see [Runner entry points](#runner-entry-points)).
@@ -160,37 +160,37 @@ failed too.
 ## Assertions
 
 Header: `framework/assert.h`. Every macro records a failure on the in-scope `ctx` and
-**continues execution** — only `GDX_ABORT_TEST` aborts the test.
+**continues execution** — only `GDEX_ABORT_TEST` aborts the test.
 
 | Macro | Passes when | Failure message includes |
 | --- | --- | --- |
 | `GDX_EXPECT(cond)` | `cond` is truthy | the expression text |
 | `GDX_EXPECT_TRUE(cond)` | alias of `GDX_EXPECT` | — |
-| `GDX_EXPECT_FALSE(cond)` | `cond` is falsy | the expression text |
-| `GDX_EXPECT_EQ(a, b)` | `a == b` | `expected a == b` + formatted `a`, `b` |
-| `GDX_EXPECT_NE(a, b)` | `a != b` | lhs/rhs formatted |
-| `GDX_EXPECT_LT/LE/GT/GE(a, b)` | `a < b`, `a <= b`, `a > b`, `a >= b` | lhs/rhs formatted |
-| `GDX_EXPECT_NEAR(a, b, eps)` | `|a − b| <= eps` (as `double`) | lhs/rhs formatted |
-| `GDX_EXPECT_STR_EQ(a, b)` | `std::string(a) == std::string(b)` | both strings |
-| `GDX_EXPECT_STR_CONTAINS(hay, needle)` | `hay` contains `needle` | both strings |
-| `GDX_EXPECT_NULL(p)` | `p == nullptr` | the expression text |
-| `GDX_EXPECT_NOT_NULL(p)` | `p != nullptr` | the expression text |
-| `GDX_FAIL(msg)` | never | `msg` |
-| `GDX_ABORT_TEST(msg)` | never — records `"ABORT: " + msg` then throws | the message |
-| `GDX_SKIP(msg)` | — (skips, never a pass or failure) | the reason `msg` |
+| `GDEX_EXPECT_FALSE(cond)` | `cond` is falsy | the expression text |
+| `GDEX_EXPECT_EQ(a, b)` | `a == b` | `expected a == b` + formatted `a`, `b` |
+| `GDEX_EXPECT_NE(a, b)` | `a != b` | lhs/rhs formatted |
+| `GDEX_EXPECT_LT/LE/GT/GE(a, b)` | `a < b`, `a <= b`, `a > b`, `a >= b` | lhs/rhs formatted |
+| `GDEX_EXPECT_NEAR(a, b, eps)` | `|a − b| <= eps` (as `double`) | lhs/rhs formatted |
+| `GDEX_EXPECT_STR_EQ(a, b)` | `std::string(a) == std::string(b)` | both strings |
+| `GDEX_EXPECT_STR_CONTAINS(hay, needle)` | `hay` contains `needle` | both strings |
+| `GDEX_EXPECT_NULL(p)` | `p == nullptr` | the expression text |
+| `GDEX_EXPECT_NOT_NULL(p)` | `p != nullptr` | the expression text |
+| `GDEX_FAIL(msg)` | never | `msg` |
+| `GDEX_ABORT_TEST(msg)` | never — records `"ABORT: " + msg` then throws | the message |
+| `GDEX_SKIP(msg)` | — (skips, never a pass or failure) | the reason `msg` |
 
-`GDX_ABORT_TEST` throws a private `TestAborted` type caught inside the runner's frame; it
+`GDEX_ABORT_TEST` throws a private `TestAborted` type caught inside the runner's frame; it
 marks the test as crashed. It never propagates out of the framework.
 
-`GDX_SKIP(msg)` throws a private `TestSkipped` type (also caught inside the runner's
+`GDEX_SKIP(msg)` throws a private `TestSkipped` type (also caught inside the runner's
 frame). It records the test as **skipped** with reason `msg` and stops the body — control
 never continues past the call. A skipped test counts in the `skip` totals, not in
 `pass`/`fail`, and does not change the exit code. It is meant for runtime preconditions
 (missing fixture/service, timing, platform), e.g.:
 
 ```cpp
-GDX_TEST(feature, needs_optional_service) {
-    if (!service_available()) GDX_SKIP("optional service not present");
+GDEX_TEST(feature, needs_optional_service) {
+    if (!service_available()) GDEX_SKIP("optional service not present");
     // ... test logic ...
 }
 ```
@@ -227,13 +227,13 @@ public:
     [[noreturn]] static void abort_test(const char *file, int line, std::string message);
     [[noreturn]] static void skip(const char *file, int line, std::string reason);
 
-    bool skipped() const;                       // true after GDX_SKIP
-    const std::string &skip_reason() const;     // the reason passed to GDX_SKIP
+    bool skipped() const;                       // true after GDEX_SKIP
+    const std::string &skip_reason() const;     // the reason passed to GDEX_SKIP
 
     void set_engine(void *engine);       // set by the runner in engine-triggered runs
     void *engine_handle() const;         // opaque live-engine host, or null
 
-    // Async waits (Milestone C): awaitables for `co_await` in GDX_TEST_ASYNC bodies
+    // Async waits (Milestone C): awaitables for `co_await` in GDEX_TEST_ASYNC bodies
     // (defined in async.h). See [Async tests](#async-tests).
     FrameAwaiter await_frames(int64_t frames, int64_t timeout_ms = kDefaultTimeoutMs);
     TimerAwaiter await_timer_ms(int64_t ms, int64_t timeout_ms = 0);
@@ -244,7 +244,7 @@ public:
 ```
 
 The runner constructs one `TestContext` per test and injects it as `ctx`. `abort_test` is
-the implementation behind `GDX_ABORT_TEST`; it records on the currently-active context
+the implementation behind `GDEX_ABORT_TEST`; it records on the currently-active context
 before throwing. `await_frames`/`await_timer_ms` return the awaitables used with `co_await`
 in async test bodies; their implementations live in `async.h` (the forward declarations in
 `context.h` keep the coroutine machinery out of the core header).
@@ -270,7 +270,7 @@ godot::SceneTree *engine_tree(TestContext &ctx);
 }  // namespace gdextest
 ```
 
-Include this header and tag the test `GDX_TEST_T(..., TAG_INTEGRATION)` to reach the live
+Include this header and tag the test `GDEX_TEST_T(..., TAG_INTEGRATION)` to reach the live
 engine: singletons, `ClassDB`, and building real scene-tree structure (`memnew`,
 `add_child`, `remove_child`, `memdelete`). These functions return null for pure
 (non-engine-triggered) invocations, so guard the result before dereferencing.

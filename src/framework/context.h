@@ -54,7 +54,7 @@ public:
     void *engine_handle() const { return engine_; }
 
     // Async waits for multi-frame tests (plan §7.2, Milestone C). Used as
-    // `co_await ctx.await_frames(2)` inside a GDX_TEST_ASYNC body; the runner's
+    // `co_await ctx.await_frames(2)` inside a GDEX_TEST_ASYNC body; the runner's
     // frame pump resumes the body once the wait resolves. `timeout_ms` bounds
     // how long the wait may take before the test is failed (a safety net for
     // waits that never resolve). Implemented in async.h.
