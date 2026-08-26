@@ -49,9 +49,9 @@ prevents the build from starting.
 | `--gdextest-run` | Run the suites, print the summary, quit | The trigger. `GDX_RUN_TESTS=1` env var is equivalent |
 | `--gdextest-list` | Print the selected tests and quit without running | Requires a trigger to be present |
 | `--gdextest-filter=<spec>` | Select tests | Comma-separated globs; `-` prefix excludes, e.g. `--gdextest-filter=string_utils.*,-string_utils.trim_no_op*` |
-| `--gdextest-shuffle[=<seed>]` | Randomize run order | Fixed seed reproduces the order; `--gdextest-shuffle` alone seeds with 1 |
+| `--gdextest-shuffle[=<seed>]` | Randomize run order | Fixed seed reproduces the order; `--gdextest-shuffle` alone uses seed 1 |
 | `--gdextest-shard=<k>/<n>` | Run shard `k` (0-based) of `n` | Stable hash assignment — same test always lands in the same shard |
-| `--gdextest-json=<path>` | Write machine-readable results | Path is relative to the process working directory; JSON schema below |
+| `--gdextest-json=<path>` | Write machine-readable results | The CLI resolves the path to an absolute path before launching Godot |
 
 Filter grammar (see `docs/api-reference.md` → `Filter`): `*` and `?` wildcards,
 case-sensitive, matched against `suite.name`, the suite, or the name.
@@ -75,7 +75,7 @@ printed to stdout before exiting.
 ## Human output
 
 ```text
-== gdextest: 34 passed, 0 failed, 1 skipped ==
+== gdextest: <passed> passed, <failed> failed, <skipped> skipped ==
 [PASS] self.filter_positive_glob_matches  (0 ms)
 [PASS] string_utils.trim_strips_both_ends  (0 ms)
 [FAIL] counter.bump_increments  (0 ms)
@@ -118,6 +118,7 @@ Written by `--gdextest-json=<path>`. Schema:
       "name": "bump_increments",
       "status": "fail",              // "pass" | "fail" | "crashed" | "skipped"
       "duration_ms": 0,
+      "retries": 0,
       "failures": [
         { "file": "tests/counter_state_tests.cpp", "line": 12, "message": "…" }
       ]
@@ -128,6 +129,7 @@ Written by `--gdextest-json=<path>`. Schema:
       "status": "skipped",
       "reason": "precondition not met: GDX_BENCHMARK_SERVICE is unset",
       "duration_ms": 0,
+      "retries": 0,
       "failures": []
     }
   ]
@@ -141,6 +143,8 @@ Written by `--gdextest-json=<path>`. Schema:
 - An async test whose wait timed out is reported with `status` `"fail"` and a failure
   message containing `timed out` — same schema, no special fields.
 - `totals.skip` is the number of tests skipped via `GDEX_SKIP` (0 when none).
+- `retries` is the number of additional attempts used for the test. `TAG_FLAKY` tests may
+  use up to `kDefaultFlakyRetries` (currently 3) retries; other tests report `0`.
 - Strings are JSON-escaped; control characters become `\uXXXX`.
 
 ## Examples

@@ -32,7 +32,7 @@ any engine interaction. `GDEX_TEST` assigns `TAG_UNIT` by default.
 
 ### `GDEX_TEST_ASYNC(suite, name)` / `GDEX_TEST_ASYNC_T(suite, name, tags)`
 
-Declares and registers an **async test** (Milestone C): a C++20 coroutine body that may
+Declares and registers an **async test**: a C++20 coroutine body that may
 `co_await` engine waits (see [Async tests](#async-tests)). `GDEX_TEST_ASYNC` tags the test
 `TAG_ASYNC`; the `_T` variant takes explicit tags. The body receives `TestContext& ctx`
 and must end with `co_return;` (a bare `return;` is not allowed inside a coroutine):
@@ -233,13 +233,14 @@ public:
     void set_engine(void *engine);       // set by the runner in engine-triggered runs
     void *engine_handle() const;         // opaque live-engine host, or null
 
-    // Async waits (Milestone C): awaitables for `co_await` in GDEX_TEST_ASYNC bodies
+    // Async waits: awaitables for `co_await` in GDEX_TEST_ASYNC bodies
     // (defined in async.h). See [Async tests](#async-tests).
     FrameAwaiter await_frames(int64_t frames, int64_t timeout_ms = kDefaultTimeoutMs);
     TimerAwaiter await_timer_ms(int64_t ms, int64_t timeout_ms = 0);
 
-    void track_object(void *obj);  // M4 stub — leak/UAF tracking hooks
-    void track_ref(void *ref);     // M4 stub
+    void track_object(void *obj);  // track a Godot Object by instance ID
+    void track_ref(void *ref);      // track a RefCounted's initial count
+    const std::vector<std::string> &resource_failures() const;
 };
 ```
 
@@ -248,8 +249,11 @@ the implementation behind `GDEX_ABORT_TEST`; it records on the currently-active 
 before throwing. `await_frames`/`await_timer_ms` return the awaitables used with `co_await`
 in async test bodies; their implementations live in `async.h` (the forward declarations in
 `context.h` keep the coroutine machinery out of the core header).
-`track_object`/`track_ref` are declared so assertion code can reference them without
-`#ifdef` churn; the tracking implementation is a later milestone.
+`track_object` records a Godot object's instance ID and checks at teardown that the object
+was freed. `track_ref` records a `RefCounted`'s initial reference count and reports an
+increase at teardown. Resource problems are appended to the context's failures, so they
+make the test fail without dereferencing a stale object. `resource_failures()` exposes the
+associated diagnostic strings.
 
 The engine handle is an opaque `void*` so the core stays Godot-free. When a run happens
 through the engine trigger, the runner sets it to the live host node; engine-boundary

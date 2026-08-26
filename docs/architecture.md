@@ -16,7 +16,7 @@ Godot project enables an `EditorPlugin` that, once the editor is up (and the fil
 scan has finished), calls the adapter. The adapter detects a trigger (`GDX_RUN_TESTS` env
 var or `--gdextest-run`), bootstraps the extension's services, and hands the live
 `SceneTree` to the runner. The runner parses `--gdextest-*` flags, selects tests, and runs
-them — sync bodies inline, async bodies (Milestone C) through a `process_frame` pump that
+them — sync bodies inline, async bodies through a `process_frame` pump that
 suspends and resumes coroutines across frames — then prints results and calls
 `SceneTree::quit(code)`; the process exits with that code. That is the entire contract.
 
@@ -58,7 +58,7 @@ The most important design constraint, repeated in comments throughout the code:
    that is caught *inside the runner's own frame* — it never crosses an engine callback
    boundary.
 5. **The runner is single-threaded.** Sync tests run inline, one after another. Async tests
-   (Milestone C) are C++20 coroutines: when a body `co_await`s, the runner registers a
+   are C++20 coroutines: when a body `co_await`s, the runner registers a
    `process_frame` callback and returns control to the engine main loop; each frame
    advances the wait and resumes the coroutine when it resolves. Tests still run one at a
    time, in declaration order — no interleaving. Timeouts (`kDefaultTimeoutMs` per wait,
@@ -115,6 +115,8 @@ up, and a `quit()` from there is dropped — the editor hangs indefinitely. See
 | `Filter` mirrors googletest glob grammar | Familiar to users; supports `suite.*`, negatives, and matching against `suite.name`, `suite`, or `name` |
 | Stable-hash sharding | The same test always lands in the same shard, so shards are disjoint across runs and CI parallelism is reproducible |
 | Seeded shuffle (LCG + Fisher–Yates) | Reproducible randomized order for finding order-dependent bugs |
+| Flaky-tag retries | Gives explicitly tagged tests up to 3 additional attempts without hiding ordinary failures |
+| Resource tracking via instance IDs/reference counts | Detects leaked Godot objects and retained references during teardown without stale-pointer dereferences |
 | Async tests are C++20 coroutines (`Task` + `co_await`), not threads | Coroutines suspend on the Godot main thread and are resumed by the `process_frame` pump — no locking, no engine calls off the main thread; a plain sync body is unchanged (`GDEX_TEST` stays a function pointer) |
 | One async test in flight at a time, declaration order | Keeps results deterministic and avoids interleaving; the pump advances one await per tick |
 | Framework core ships in `src/framework/`, entry + adapter in `src/`, suites in `tests/` | The core is host-agnostic; entry/adapter are the engine-boundary templates; `tests/` is this repo's own reference usage |

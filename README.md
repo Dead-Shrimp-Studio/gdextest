@@ -7,10 +7,10 @@ can exercise both pure logic and live engine APIs (singletons, your own register
 `Variant`/`String` round-trips, …), and are CI-friendly via JSON output and test
 filtering/sharding.
 
-> **Status:** Milestones A–C are complete: the framework core, portable `HostConfig`,
-> reference fixture, headless execution, structured configuration, diagnostics, JSON
-> output, the CLI-driven external-consumer flow, and async / multi-frame tests are
-> working on Godot 4.5.
+> **Status:** The current implementation supports sync and C++20 async tests, flaky retries,
+> tracked Godot object/reference teardown checks, structured configuration, diagnostics,
+> JSON output, editor and runtime fixtures, and the CLI-driven external-consumer flow on
+> Godot 4.5.
 
 ---
 
@@ -74,7 +74,9 @@ failing check:
 | `GDEX_SKIP(msg)` | record the test as skipped for a runtime reason and stop the body |
 
 `GDEX_TEST_T(suite, name, tags)` registers with tags (`TAG_UNIT`, `TAG_INTEGRATION`,
-`TAG_SLOW`, `TAG_FLAKY`, … — see `src/framework/config.h`). Tag names resolve bare, so write
+`TAG_ASYNC`, `TAG_SLOW`, `TAG_FLAKY` — see `src/framework/config.h`). Tests tagged
+`TAG_FLAKY` are retried up to `kDefaultFlakyRetries` (currently 3 retries) until they pass.
+Tag names resolve bare, so write
 `GDEX_TEST_T(engine, spins_up, TAG_INTEGRATION)` exactly as shown. This repo's reference
 suites live in [`tests/`](tests/).
 
@@ -266,3 +268,6 @@ repository — they're all generated.
   can crash on shutdown (notes.md §5).
 - `--gdextest-list` alone doesn't trigger a run; pair it with `--gdextest-run`.
 - Exit code 2 (usage error) is emitted for malformed or unknown `--gdextest-*` options.
+- `TAG_FLAKY` tests receive up to 3 retries by default; JSON includes a `retries` field.
+- `ctx.track_object()` and `ctx.track_ref()` enable teardown checks for live Godot objects
+  and reference counts; failures are reported as ordinary test failures.
