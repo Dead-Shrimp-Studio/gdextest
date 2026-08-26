@@ -2,6 +2,17 @@
 
 ## Invocation shape
 
+The consumer-facing command is:
+
+```bash
+./gdextest test [--godot /path/to/Godot] [--filter=...] [--json=results.json]
+```
+
+`test` is intentionally safe to run from a freshly cloned consumer repository. If
+`.gdextest.toml` is missing, it writes the starter config once. It then runs the doctor
+checks on every invocation before building or launching Godot. Existing configuration is
+never overwritten by `test`; use `init --force` for an explicit reset.
+
 The test run is triggered by launching Godot against the fixture project. Engine arguments
 go before `--`; gdextest arguments go after `--`:
 
@@ -15,6 +26,21 @@ godot --headless --editor --path <fixture> -- --gdextest-run [--gdextest-* optio
 - The **option flags** (`--gdextest-filter=…`, `--gdextest-json=…`, …) are read from the user
   list only, so pass them after `--`.
 - Without a trigger, the extension loads but does nothing — normal startup continues.
+
+## Setup commands
+
+| Command | Effect |
+| --- | --- |
+| `./gdextest init` | Create the starter `.gdextest.toml` if it does not exist |
+| `./gdextest init --ci` | Create the starter config and GitHub Actions workflow |
+| `./gdextest init --force` | Regenerate the starter config and any requested workflow |
+| `./gdextest doctor` | Run environment checks without building or running tests |
+| `./gdextest list` | Build the test library and list selected tests |
+| `./gdextest clean` | Remove generated test output |
+
+`test` combines the useful setup steps: missing config initialization, doctor preflight,
+build, fixture generation, and the headless Godot run. A doctor failure returns `2` and
+prevents the build from starting.
 
 ## Flags
 
@@ -120,6 +146,13 @@ Written by `--gdextest-json=<path>`. Schema:
 ## Examples
 
 Run everything, write results for CI:
+
+```bash
+./gdextest test --godot /path/to/Godot --json=results.json
+```
+
+The command above performs config initialization and doctor preflight automatically.
+For direct Godot invocation, use:
 
 ```bash
 godot --headless --editor --path testdata/project -- \

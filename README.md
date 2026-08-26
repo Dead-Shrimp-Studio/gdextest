@@ -14,29 +14,30 @@ filtering/sharding.
 
 ---
 
-## Quickstart (this repo)
+## Quickstart (consumer workflow)
 
-Prerequisites: `scons`, a C++17 toolchain, and a Godot **4.5** binary (this repo pins
-`extern/godot-cpp` to the `4.5` branch).
+The intended integration flow is deliberately short:
+
+```text
+clone → write a test → gdextest test
+```
+
+After the framework has been added to your extension repository, write a suite under
+`tests/` and run:
 
 ```bash
-# one command: build, generate the fixture, and run headless
 GODOT=/path/to/Godot_v4.5-stable_linux.x86_64 ./gdextest test
 ```
 
-The CLI also supports `./gdextest init`, `./gdextest doctor`, `./gdextest list`, and
-`./gdextest clean`.
+On the first run, `gdextest test` creates `.gdextest.toml` if it is missing, runs the
+same environment checks as `gdextest doctor`, builds the test library, generates the
+disposable fixture, and runs Godot headlessly. On subsequent runs it keeps your config,
+re-checks the environment, and repeats the build/run. It never overwrites an existing
+`.gdextest.toml`; edit that file when your layout needs customization.
 
-Or step by step:
-
-```bash
-scons platform=linux target=template_debug tests=true      # builds + generates build/gdextest/project
-godot --headless --editor --path build/gdextest/project -- --gdextest-run
-```
-
-You'll see a summary like `== gdextest: 34 passed, 0 failed, 1 skipped ==` and the shell
-exit code tells you the result: **0** = all passed (skips do not fail the run),
-**1** = ≥1 failure, **2** = usage error.
+Prerequisites are `scons`, a C++17 toolchain, and a Godot **4.5** binary (the framework
+pins `extern/godot-cpp` to the `4.5` branch). The CLI also provides explicit
+`./gdextest init`, `./gdextest doctor`, `./gdextest list`, and `./gdextest clean` commands.
 
 ## Writing tests
 
@@ -64,7 +65,7 @@ failing check:
 
 | Macro | Checks |
 | --- | --- |
-| `GDX_EXPECT(cond)`, `GDX_EXPECT_TRUE/FALSE` | boolean conditions |
+| `GDEX_EXPECT(cond)`, `GDEX_EXPECT_TRUE/FALSE` | boolean conditions |
 | `GDEX_EXPECT_EQ/NE/LT/LE/GT/GE(a, b)` | comparisons with value formatting |
 | `GDEX_EXPECT_NEAR(a, b, eps)` | floating-point tolerance |
 | `GDEX_EXPECT_STR_EQ(a, b)`, `GDEX_EXPECT_STR_CONTAINS(h, n)` | string comparisons |
@@ -123,7 +124,7 @@ GDEX_TEST_T(engine, can_build_scene_graph, TAG_INTEGRATION) {
     godot::Node *child = memnew(godot::Node);
     child->set_name("temp");
     tree->get_root()->add_child(child);
-    GDX_EXPECT(child->get_parent() != nullptr);
+    GDEX_EXPECT(child->get_parent() != nullptr);
     tree->get_root()->remove_child(child);
     memdelete(child);
 }
@@ -162,52 +163,51 @@ godot --headless --editor --path testdata/project -- \
 ## Using gdextest in your own extension
 
 The framework is a thin layer around your existing GDExtension build — there is no separate
-runner binary to install. You pull in the framework sources, compile them **into your test
-build**, and drive them through a tiny per-extension adapter. The CLI owns the whole loop:
-config, build, fixture generation, headless run, and JSON results.
+runner binary to install. Add the framework, write tests, and let `gdextest test` own the
+configuration check, build, fixture generation, headless run, and result handling.
 
-1. **Add the framework to your repo** (git submodule, mirroring the `extern/godot-cpp`
-   pattern used here):
+### 1. Add the framework
 
-   ```bash
-   git submodule add <this repo> extern/gdextest
-   git submodule update --init --recursive   # also pulls extern/gdextest/extern/godot-cpp
-   ```
+Add the framework as a git submodule, mirroring the `extern/godot-cpp` pattern used here:
 
-2. **Generate the starter config** — `./gdextest init` writes a `.gdextest.toml` that
-   matches your layout (add `--ci` to also drop in a GitHub Actions workflow):
+```bash
+git submodule add <this repo> extern/gdextest
+git submodule update --init --recursive   # also pulls extern/gdextest/extern/godot-cpp
+```
 
-   ```bash
-   ./gdextest init --ci
-   ```
+### 2. Write your first suite
 
-3. **Write your suites** with `GDEX_TEST(...)` and the assertion macros (above). Nothing
-   else is needed for pure-logic tests; tag `TAG_INTEGRATION` and include
-   `framework/engine.h` to reach the live engine.
+Create a C++ file under `tests/` using `GDEX_TEST(...)` and the assertion macros above.
+Pure-logic tests need no additional setup; tag engine-facing tests with `TAG_INTEGRATION`
+and include `framework/engine.h` when they need the live Godot engine.
 
-4. **Validate the environment once** — `./gdextest doctor` checks the config, framework
-   path, Godot version, SCons, and discovered test sources:
+### 3. Run the quickstart
 
-   ```bash
-   ./gdextest doctor --godot /path/to/Godot
-   ```
+```bash
+./gdextest test --godot /path/to/Godot --json=results.json
+```
 
-5. **Build and run** — one command builds the test library, generates the disposable
-   fixture, runs headless, and maps the exit code to your pipeline:
+If `.gdextest.toml` does not exist, this command writes the starter configuration. It then
+runs the doctor checks on every invocation — including config validity, framework path,
+Godot version, SCons, and discovered test sources — before starting the build. A failed
+check stops the command with exit code `2`, so setup problems are reported early. An
+existing config is preserved; use `./gdextest init --force` only when you explicitly want
+to regenerate it. Use `./gdextest init --ci` to create the config and a starter workflow
+without running tests.
 
-   ```bash
-   ./gdextest test --godot /path/to/Godot --json=results.json
-   ```
+A successful command builds the test library, generates the disposable fixture, runs
+Godot headlessly, and returns `0` when all selected tests pass or `1` when a test fails.
+Use `--json=results.json` for CI artifacts and `--shard=k/n` to parallelize.
 
-   Exit code `0` = green, `1` = red. Write `--json=results.json` for CI artifacts and use
-   `--shard=k/n` to parallelize.
+### 4. Customize only when needed
 
-6. **Customize only when needed** — everything lives in `.gdextest.toml` (test sources,
-   host mode, fixture, output name). For extension-specific startup, register ordinary
-   function pointers with `gdextest::configure_host({&start, &stop})` from your
-   initialization path — no weak symbols or platform-specific linker behavior. A custom
-   `entry`/`adapter` remains available for the rare case the default host lifecycle isn't
-   enough.
+Everything lives in `.gdextest.toml` (test sources, host mode, fixture, output name). For
+extension-specific startup, register ordinary function pointers with
+`gdextest::configure_host({&start, &stop})` from your initialization path — no weak symbols
+or platform-specific linker behavior. A custom `entry`/`adapter` remains available for the
+rare case the default host lifecycle isn't enough.
+
+### 5. Build integration details
 
 Under the hood, the CLI drives the reusable [`SConscript`](SConscript), which supplies the
 generic entry point and adapter, compiles the framework plus your suites into a test-only

@@ -128,11 +128,69 @@ GDEX_TEST(self, multiple_failures_all_recorded) {
 GDEX_TEST(self, passing_assertions_record_no_failures) {
     int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
         (void)ctx;
+        GDEX_EXPECT(true);
         GDEX_EXPECT_TRUE(true);
-        GDEX_EXPECT_EQ(2, 2);
         GDEX_EXPECT_FALSE(false);
+        GDEX_EXPECT_EQ(2, 2);
+        GDEX_EXPECT_NE(2, 3);
+        GDEX_EXPECT_LT(1, 2);
+        GDEX_EXPECT_LE(2, 2);
+        GDEX_EXPECT_GT(2, 1);
+        GDEX_EXPECT_GE(2, 2);
+        GDEX_EXPECT_NEAR(1.0, 1.001, 0.01);
+        GDEX_EXPECT_STR_EQ("same", "same");
+        GDEX_EXPECT_STR_CONTAINS("hello world", "world");
+        int value = 7;
+        GDEX_EXPECT_NULL(nullptr);
+        GDEX_EXPECT_NOT_NULL(&value);
     });
     GDEX_EXPECT_EQ(n, 0);
+}
+
+GDEX_TEST(self, assertion_macros_record_each_failure) {
+    int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        int value = 7;
+        GDEX_EXPECT(false);
+        GDEX_EXPECT_TRUE(false);
+        GDEX_EXPECT_FALSE(true);
+        GDEX_EXPECT_EQ(1, 2);
+        GDEX_EXPECT_NE(2, 2);
+        GDEX_EXPECT_LT(2, 1);
+        GDEX_EXPECT_LE(2, 1);
+        GDEX_EXPECT_GT(1, 2);
+        GDEX_EXPECT_GE(1, 2);
+        GDEX_EXPECT_NEAR(1.0, 2.0, 0.01);
+        GDEX_EXPECT_STR_EQ("left", "right");
+        GDEX_EXPECT_STR_CONTAINS("hello", "missing");
+        GDEX_EXPECT_NULL(&value);
+        GDEX_EXPECT_NOT_NULL(nullptr);
+        GDEX_FAIL("deliberate failure");
+    });
+    GDEX_EXPECT_EQ(n, 15);
+}
+
+GDEX_TEST(self, comparison_macros_evaluate_operands_once) {
+    static int evaluations = 0;
+    evaluations = 0;
+    int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        GDEX_EXPECT_EQ(++evaluations, 2);
+    });
+    GDEX_EXPECT_EQ(n, 1);
+    GDEX_EXPECT_EQ(evaluations, 1);
+}
+
+GDEX_TEST(self, abort_macro_records_failure_and_stops_body) {
+    static bool reached_after_abort = false;
+    reached_after_abort = false;
+    int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        GDEX_ABORT_TEST("stop here");
+        reached_after_abort = true;
+    });
+    GDEX_EXPECT_EQ(n, 1);
+    GDEX_EXPECT_FALSE(reached_after_abort);
 }
 
 // --- skipping: GDEX_SKIP stops the body and is not a failure -----------------
@@ -211,6 +269,42 @@ GDEX_TEST(self, json_escapes_quotes_and_newlines_in_messages) {
     std::remove(path);
     // The raw message must appear escaped: \" for the quote, \n for the newline.
     GDEX_EXPECT_STR_CONTAINS(json, "say \\\"hi\\\"\\nnext line");
+}
+
+// Tagged registration is exercised by both the synchronous and asynchronous
+// variants. The registry tests below verify that explicit tags survive.
+GDEX_TEST_T(self, tagged_sync_registration, TAG_UNIT | TAG_SLOW) {
+    GDEX_EXPECT_TRUE(true);
+}
+
+GDEX_TEST_ASYNC_T(self, tagged_async_registration, TAG_ASYNC | TAG_SLOW) {
+    GDEX_EXPECT_TRUE(true);
+    co_return;
+}
+
+GDEX_TEST(self, tagged_registration_preserves_metadata) {
+    const auto &cases = gdextest::TestRegistry::instance().all();
+    bool found_sync = false;
+    bool found_async = false;
+    for (const auto &test_case : cases) {
+        if (std::string(test_case.suite) != "self") continue;
+        if (std::string(test_case.name) == "tagged_sync_registration") {
+            found_sync = true;
+            GDEX_EXPECT_TRUE(test_case.fn != nullptr);
+            GDEX_EXPECT_EQ(test_case.async_fn, nullptr);
+            GDEX_EXPECT_TRUE((test_case.tags & gdextest::TAG_UNIT) != 0);
+            GDEX_EXPECT_TRUE((test_case.tags & gdextest::TAG_SLOW) != 0);
+        }
+        if (std::string(test_case.name) == "tagged_async_registration") {
+            found_async = true;
+            GDEX_EXPECT_EQ(test_case.fn, nullptr);
+            GDEX_EXPECT_TRUE(test_case.async_fn != nullptr);
+            GDEX_EXPECT_TRUE((test_case.tags & gdextest::TAG_ASYNC) != 0);
+            GDEX_EXPECT_TRUE((test_case.tags & gdextest::TAG_SLOW) != 0);
+        }
+    }
+    GDEX_EXPECT_TRUE(found_sync);
+    GDEX_EXPECT_TRUE(found_async);
 }
 
 // --- async: the manual pump (plan §7.2) -----------------------------------

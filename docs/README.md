@@ -37,12 +37,12 @@ the milestone plan.
 | --- | --- |
 | [architecture.md](architecture.md) | How the framework fits together: layers, execution model, design rules, lifecycle of a run |
 | [api-reference.md](api-reference.md) | The complete public API: registration macros (incl. `GDEX_TEST_ASYNC`), assertions, `TestContext` (incl. `await_frames`/`await_timer_ms`), `Filter`, tags, runner entry points |
-| [cli.md](cli.md) | Invocation, `--gdextest-*` flags, exit codes, and the human/JSON output formats |
+| [cli.md](cli.md) | Quickstart lifecycle, automatic config initialization, doctor preflight, invocation, flags, exit codes, and output formats |
 | [consumer-guide.md](consumer-guide.md) | How another extension repo integrates gdextest (adapter, entry, fixture, build, CI) |
 | [testing/notes.md](testing/notes.md) | Verified engine facts: headless quit codes, safe hook points, `user://` hermeticity, timing gotchas |
 
 ## Related
 
-- [README](../README.md) — quickstart.
+- [README](../README.md) — test-first quickstart and integration overview.
 - [.plans/gdextension-testing-framework.md](../.plans/gdextension-testing-framework.md) —
   milestone plan and open questions.

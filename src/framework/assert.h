@@ -49,7 +49,7 @@ inline std::string fmt_cmp(const char *op, const char *aexpr, const char *bexpr,
 
 // --- Macros ----------------------------------------------------------------
 // Each macro captures the current TestContext via `ctx` (a name the framework's runner
-// injects into each test body). Suite authors write GDX_EXPECT_* exactly as documented.
+// injects into each test body). Suite authors write GDEX_EXPECT_* exactly as documented.
 
 #define GDEX_RECORD_(msg) (ctx).fail(__FILE__, __LINE__, (msg))
 #define GDEX_RECORD_EXPR_(expr, msg) GDEX_RECORD_(std::string(#expr) + " — " + (msg))
@@ -59,30 +59,45 @@ inline std::string fmt_cmp(const char *op, const char *aexpr, const char *bexpr,
 #define GDEX_EXPECT_FALSE(cond) do { if ((cond)) GDEX_RECORD_EXPR_(cond, "condition true"); } while (0)
 
 #define GDEX_EXPECT_EQ(a, b) do { \
-    if (!((a) == (b))) GDEX_RECORD_(::gdextest::fmt_eq(#a, #b, (a), (b))); } while (0)
+    const auto &gdx_a = (a); const auto &gdx_b = (b); \
+    if (!(gdx_a == gdx_b)) GDEX_RECORD_(::gdextest::fmt_eq(#a, #b, gdx_a, gdx_b)); } while (0)
 #define GDEX_EXPECT_NE(a, b) do { \
-    if (((a) == (b))) GDEX_RECORD_(::gdextest::fmt_cmp("!=", #a, #b, (a), (b))); } while (0)
+    const auto &gdx_a = (a); const auto &gdx_b = (b); \
+    if (gdx_a == gdx_b) GDEX_RECORD_(::gdextest::fmt_cmp("!=", #a, #b, gdx_a, gdx_b)); } while (0)
 #define GDEX_EXPECT_LT(a, b) do { \
-    if (!((a) <  (b))) GDEX_RECORD_(::gdextest::fmt_cmp("<",  #a, #b, (a), (b))); } while (0)
+    const auto &gdx_a = (a); const auto &gdx_b = (b); \
+    if (!(gdx_a < gdx_b)) GDEX_RECORD_(::gdextest::fmt_cmp("<", #a, #b, gdx_a, gdx_b)); } while (0)
 #define GDEX_EXPECT_LE(a, b) do { \
-    if (!((a) <= (b))) GDEX_RECORD_(::gdextest::fmt_cmp("<=", #a, #b, (a), (b))); } while (0)
+    const auto &gdx_a = (a); const auto &gdx_b = (b); \
+    if (!(gdx_a <= gdx_b)) GDEX_RECORD_(::gdextest::fmt_cmp("<=", #a, #b, gdx_a, gdx_b)); } while (0)
 #define GDEX_EXPECT_GT(a, b) do { \
-    if (!((a) >  (b))) GDEX_RECORD_(::gdextest::fmt_cmp(">",  #a, #b, (a), (b))); } while (0)
+    const auto &gdx_a = (a); const auto &gdx_b = (b); \
+    if (!(gdx_a > gdx_b)) GDEX_RECORD_(::gdextest::fmt_cmp(">", #a, #b, gdx_a, gdx_b)); } while (0)
 #define GDEX_EXPECT_GE(a, b) do { \
-    if (!((a) >= (b))) GDEX_RECORD_(::gdextest::fmt_cmp(">=", #a, #b, (a), (b))); } while (0)
+    const auto &gdx_a = (a); const auto &gdx_b = (b); \
+    if (!(gdx_a >= gdx_b)) GDEX_RECORD_(::gdextest::fmt_cmp(">=", #a, #b, gdx_a, gdx_b)); } while (0)
 
 #define GDEX_EXPECT_NEAR(a, b, eps) do { \
-    if (std::abs(static_cast<double>((a)) - static_cast<double>((b))) > static_cast<double>(eps)) \
-        GDEX_RECORD_(::gdextest::fmt_cmp("near", #a, #b, (a), (b))); } while (0)
+    const auto &gdx_a = (a); const auto &gdx_b = (b); const auto &gdx_eps = (eps); \
+    if (std::abs(static_cast<double>(gdx_a) - static_cast<double>(gdx_b)) > static_cast<double>(gdx_eps)) \
+        GDEX_RECORD_(::gdextest::fmt_cmp("near", #a, #b, gdx_a, gdx_b)); } while (0)
 
 #define GDEX_EXPECT_STR_EQ(a, b) do { \
-    if (std::string(a) != std::string(b)) GDEX_RECORD_(::gdextest::fmt_eq(#a, #b, std::string(a), std::string(b))); } while (0)
+    const auto &gdx_a = (a); const auto &gdx_b = (b); \
+    const std::string gdx_a_string = std::string(gdx_a); \
+    const std::string gdx_b_string = std::string(gdx_b); \
+    if (gdx_a_string != gdx_b_string) GDEX_RECORD_(::gdextest::fmt_eq(#a, #b, gdx_a_string, gdx_b_string)); } while (0)
 #define GDEX_EXPECT_STR_CONTAINS(hay, needle) do { \
-    if (std::string(hay).find(needle) == std::string::npos) \
+    const auto &gdx_hay = (hay); const auto &gdx_needle = (needle); \
+    if (std::string(gdx_hay).find(gdx_needle) == std::string::npos) \
         GDEX_RECORD_(std::string("expected ") + #hay + " to contain " + #needle); } while (0)
 
-#define GDEX_EXPECT_NULL(ptr)    do { if ((ptr) != nullptr) GDEX_RECORD_EXPR_(ptr, "expected null"); } while (0)
-#define GDEX_EXPECT_NOT_NULL(ptr) do { if ((ptr) == nullptr) GDEX_RECORD_EXPR_(ptr, "expected non-null"); } while (0)
+#define GDEX_EXPECT_NULL(ptr) do { \
+    const auto &gdx_ptr = (ptr); \
+    if (gdx_ptr != nullptr) GDEX_RECORD_(std::string(#ptr) + " — expected null"); } while (0)
+#define GDEX_EXPECT_NOT_NULL(ptr) do { \
+    const auto &gdx_ptr = (ptr); \
+    if (gdx_ptr == nullptr) GDEX_RECORD_(std::string(#ptr) + " — expected non-null"); } while (0)
 
 #define GDEX_FAIL(msg) do { GDEX_RECORD_(std::string(msg)); } while (0)
 #define GDEX_ABORT_TEST(msg) \

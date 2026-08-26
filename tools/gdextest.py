@@ -13,6 +13,7 @@ import sys
 from gdextest_config import (
     Config,
     discover_sources,
+    find_project_root,
     godot_executable,
     godot_version,
     load_config,
@@ -109,31 +110,47 @@ def _run_environment(config: Config) -> dict[str, str]:
 
 
 def _print_check(label: str, value: str, ok: bool) -> bool:
-    print(f"{'[ok]' if ok else '[!!]'} {label}: {value}")
+    print(f"{'[ok]' if ok else '[!!]'} {label}: {value}", flush=True)
     return ok
 
 
-def cmd_doctor(args: argparse.Namespace) -> int:
-    config = load_config(args.project_root, args.framework_dir)
-    print("gdextest doctor")
-    print(f"project root: {config.project_root}")
-    print(f"framework:    {config.framework_dir}")
-    print(f"host mode:    {config.host_mode}")
-    print(f"test sources: {len(discover_sources(config))}")
+def _write_config(root: Path, *, force: bool = False) -> bool:
+    """Create the starter config without replacing consumer changes by default."""
+    config_path = root / ".gdextest.toml"
+    if config_path.exists() and not force:
+        print(f"gdextest: keeping existing {config_path}")
+        return False
+    config_path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
+    print(f"gdextest: wrote {config_path}")
+    return True
+
+
+def _run_doctor(config: Config, godot_override: str | None) -> int:
+    """Run the environment checks shared by `doctor` and every test run."""
+    print("gdextest doctor", flush=True)
+    print(f"project root: {config.project_root}", flush=True)
+    print(f"framework:    {config.framework_dir}", flush=True)
+    print(f"host mode:    {config.host_mode}", flush=True)
+    source_count = len(discover_sources(config))
+    print(f"test sources: {source_count}", flush=True)
 
     ok = True
     errors = config.validate()
+    if not errors and not source_count:
+        errors.append("no test sources found; check [gdextest.tests].sources")
     ok &= _print_check("configuration", "valid" if not errors else "; ".join(errors), not errors)
     try:
-        executable = godot_executable(config, args.godot)
+        executable = godot_executable(config, godot_override)
         version = godot_version(executable)
         expected = ".".join(config.godot_version.split(".")[:2])
         ok &= _print_check("Godot", f"{executable} ({version})", version.startswith(expected))
     except (FileNotFoundError, OSError) as error:
         ok &= _print_check("Godot", str(error), False)
-    ok &= _print_check("SCons", shutil.which("scons") or "not found", shutil.which("scons") is not None)
-    ok &= _print_check("framework SConscript", str(config.framework_dir / "SConscript"),
-                       (config.framework_dir / "SConscript").is_file())
+    scons = shutil.which("scons")
+    ok &= _print_check("SCons", scons or "not found", scons is not None)
+    framework_sconscript = config.framework_dir / "SConscript"
+    ok &= _print_check("framework SConscript", str(framework_sconscript),
+                       framework_sconscript.is_file())
     extension_library = locate_extension_library(config)
     extension_manifest = locate_extension_manifest(config)
     if extension_library or extension_manifest:
@@ -144,14 +161,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if ok else 2
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    config = load_config(args.project_root, args.framework_dir)
+    return _run_doctor(config, args.godot)
+
+
 def cmd_init(args: argparse.Namespace) -> int:
-    root = Path(args.project_root).resolve()
-    config_path = root / ".gdextest.toml"
-    if config_path.exists() and not args.force:
-        print(f"gdextest: keeping existing {config_path}")
-    else:
-        config_path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
-        print(f"gdextest: wrote {config_path}")
+    root = find_project_root(args.project_root)
+    _write_config(root, force=args.force)
     if args.ci:
         workflow = root / ".github" / "workflows" / "gdextest.yml"
         if workflow.exists() and not args.force:
@@ -172,7 +189,14 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_test(args: argparse.Namespace) -> int:
-    config = load_config(args.project_root, args.framework_dir)
+    root = find_project_root(args.project_root)
+    config_path = root / ".gdextest.toml"
+    if not config_path.exists():
+        _write_config(root)
+    config = load_config(root, args.framework_dir)
+    doctor_result = _run_doctor(config, args.godot)
+    if doctor_result:
+        return doctor_result
     _run_build(config)
     executable = godot_executable(config, args.godot)
     expected = ".".join(config.godot_version.split(".")[:2])

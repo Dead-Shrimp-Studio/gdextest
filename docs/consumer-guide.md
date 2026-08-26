@@ -71,7 +71,7 @@ runner suspends and resumes the body across `process_frame` ticks:
 ```cpp
 GDEX_TEST_ASYNC(my_extension, signal_settles_across_frames) {
     co_await ctx.await_frames(2);            // let the engine advance 2 frames
-    GDX_EXPECT(my_service->is_settled());
+    GDEX_EXPECT(my_service->is_settled());
     co_return;
 }
 ```
@@ -79,7 +79,28 @@ GDEX_TEST_ASYNC(my_extension, signal_settles_across_frames) {
 Every wait has a timeout (default 30 s per wait, 60 s per test) so a never-resolving
 await fails the test instead of hanging CI. See `api-reference.md` → Async tests.
 
-## 3. Configure the consumer contract
+## 3. Run the quickstart
+
+Once the framework submodule and a first suite are present, run the complete flow with one
+command:
+
+```bash
+./gdextest test --godot /path/to/Godot --json=results.json
+```
+
+`test` creates `.gdextest.toml` when it is missing, preserves it when it already exists,
+and runs the doctor checks on every invocation before the build. The checks cover the
+configuration, framework SConscript, Godot version, SCons, test source discovery, and any
+configured consumer extension files. A failed check returns `2` before SCons or Godot is
+started. Use `./gdextest init --ci` when you want to generate the config and CI workflow
+explicitly, or `./gdextest doctor` to inspect the environment without running a build.
+
+After the preflight passes, the command builds the test-only library, generates the
+fixture, launches Godot headlessly, and returns `0` for a passing run or `1` for test
+failures. Relative JSON paths are resolved against the consumer repository's working
+directory.
+
+## 4. Configure the consumer contract
 
 The recommended configuration is structured by responsibility. Existing flat keys remain
 supported for compatibility, but new projects should use this form:
@@ -109,16 +130,17 @@ directory = "bin"
 name = "libmy_extension_tests"
 ```
 
-Run `./gdextest doctor --godot /path/to/Godot` before the first build. It validates the
-configuration, framework path, Godot version, SCons, discovered test sources, and any
-configured consumer extension files. `gdextest test` and `gdextest list` use the same
-configuration, so source discovery and fixture settings cannot silently diverge.
+The `test` preflight validates the configuration, framework path, Godot version, SCons,
+discovered test sources, and any configured consumer extension files on every run. Run
+`./gdextest doctor --godot /path/to/Godot` directly when you want these diagnostics without
+a build. `gdextest test` and `gdextest list` use the same configuration, so source discovery
+and fixture settings cannot silently diverge.
 
 `host.mode = "editor"` generates the scan-safe `EditorPlugin` fixture and runs Godot with
 `--headless --editor`. `host.mode = "runtime"` generates an autoload fixture and runs plain
 `--headless`, which is appropriate for runtime-only extensions.
 
-## 4. Build with the generated host
+## 5. Build with the generated host
 
 The framework owns the generic GDExtension entry point, adapter, editor plugin wrapper,
 manifest, and fixture project. Consumers only provide their suites:
@@ -142,7 +164,7 @@ The generated project contains
 the scan-safe `EditorPlugin` wrapper and points at the generated library, so there is no
 copying or symlink step.
 
-## 5. Customize startup only when needed
+## 6. Customize startup only when needed
 
 If your extension needs services bootstrapped before the tests run, configure the host from
 your extension's initialization code. Include `framework/host.h` and register ordinary
@@ -165,7 +187,7 @@ no-op, so consumers that need no setup provide nothing. The callback API is port
 GCC, Clang, and MSVC; a custom `adapter` or `entry` remains available only when the default
 host lifecycle itself is insufficient.
 
-## 6. Write a custom adapter (optional)
+## 7. Write a custom adapter (optional)
 
 If the default host is not enough, `adapter.cpp` is the **only file that should know your
 extension's wiring**. Model it on
@@ -207,7 +229,7 @@ void maybe_run(godot::Node *tree_node) {
 #endif // GDEXTEST_ENABLED
 ```
 
-## 7. Add a custom entry point (optional)
+## 8. Add a custom entry point (optional)
 
 Copy [`src/gdextest_entry.cpp`](../src/gdextest_entry.cpp) and rename the plugin class to
 match your extension. It registers an `EditorPlugin` whose `_ready()` calls your adapter.
@@ -231,7 +253,7 @@ GDExtensionBool GDE_EXPORT my_library_init(
 The `.gdextension` manifest in your fixture project must set `entry_symbol` to this
 function's name.
 
-## 8. Create a custom fixture project (optional)
+## 9. Create a custom fixture project (optional)
 
 Copy [`testdata/project/`](../testdata/project/) and adapt. Three pieces:
 
@@ -292,7 +314,7 @@ func _exit_tree() -> void:
         test_plugin = null
 ```
 
-## 9. Custom build details
+## 10. Custom build details
 
 For custom entry/adapter or output settings, call the framework's reusable [`SConscript`](../SConscript)
 `SConscript` (the env must already carry godot-cpp's include paths and `LIBS`). It compiles
@@ -325,7 +347,7 @@ project root. Optional extras your env can carry: `sanitize=true` (ASan/UBSan) a
 `coverage=true` flags are applied to `env` before the call and inherited by the test target
 (this repo's `SConstruct` is the working example).
 
-## 10. Run and wire into CI
+## 11. Run and wire into CI
 
 ```bash
 ./gdextest test --json=results.json

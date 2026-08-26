@@ -164,8 +164,8 @@ Header: `framework/assert.h`. Every macro records a failure on the in-scope `ctx
 
 | Macro | Passes when | Failure message includes |
 | --- | --- | --- |
-| `GDX_EXPECT(cond)` | `cond` is truthy | the expression text |
-| `GDX_EXPECT_TRUE(cond)` | alias of `GDX_EXPECT` | — |
+| `GDEX_EXPECT(cond)` | `cond` is truthy | the expression text |
+| `GDEX_EXPECT_TRUE(cond)` | alias of `GDEX_EXPECT` | — |
 | `GDEX_EXPECT_FALSE(cond)` | `cond` is falsy | the expression text |
 | `GDEX_EXPECT_EQ(a, b)` | `a == b` | `expected a == b` + formatted `a`, `b` |
 | `GDEX_EXPECT_NE(a, b)` | `a != b` | lhs/rhs formatted |

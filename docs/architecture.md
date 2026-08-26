@@ -67,7 +67,12 @@ The most important design constraint, repeated in comments throughout the code:
 
 ## Lifecycle of a test run
 
-1. **Build.** `scons tests=true` compiles the framework core, the entry point, the host
+From a consumer repository, `./gdextest test` performs the CLI preflight before this
+engine lifecycle: it creates the starter config only when `.gdextest.toml` is missing,
+keeps existing configuration intact, and runs the doctor checks on every invocation.
+A failed preflight returns `2` before SCons starts.
+
+1. **Build.** After preflight, `scons tests=true` compiles the framework core, the entry point, the host
    adapter, and the host suites into a separately-named shared object
    (`libgdextest…so`) with `GDEXTEST_ENABLED` defined. Release builds carry neither the
    define nor the file.
