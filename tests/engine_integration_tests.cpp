@@ -10,6 +10,8 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/window.hpp>
+#include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/memory.hpp> // memnew / memdelete
 
 #include "framework/assert.h"
@@ -41,6 +43,7 @@ GDEX_TEST_T(engine, can_create_and_destroy_node, TAG_INTEGRATION) {
     GDEX_EXPECT_NOT_NULL(static_cast<void *>(root));
 
     godot::Node *child = memnew(godot::Node);
+    ctx.track_object(child);
     child->set_name("gdextest-temp");
     root->add_child(child);
     GDEX_EXPECT(child->get_parent() == static_cast<godot::Node *>(root));
@@ -48,6 +51,26 @@ GDEX_TEST_T(engine, can_create_and_destroy_node, TAG_INTEGRATION) {
 
     root->remove_child(child);
     memdelete(child);
+}
+
+// Tracking a freed object is safe: teardown resolves its instance ID and does
+// not dereference the stale pointer.
+GDEX_TEST_T(engine, tracked_object_is_clean_after_free, TAG_INTEGRATION) {
+    godot::Node *child = memnew(godot::Node);
+    ctx.track_object(child);
+    const uint64_t id = child->get_instance_id();
+    memdelete(child);
+    GDEX_EXPECT_NULL(godot::UtilityFunctions::instance_from_id(static_cast<int64_t>(id)));
+}
+
+// A RefCounted kept alive by the test is detected at teardown through its
+// instance ID and reference count. This test deliberately releases its local
+// reference before teardown, so it remains green.
+GDEX_TEST_T(engine, tracked_ref_is_released_cleanly, TAG_INTEGRATION) {
+    godot::Ref<godot::RefCounted> value = memnew(godot::RefCounted);
+    ctx.track_ref(value.ptr());
+    value.unref();
+    GDEX_EXPECT_TRUE(true);
 }
 
 #endif // GDEXTEST_ENABLED
