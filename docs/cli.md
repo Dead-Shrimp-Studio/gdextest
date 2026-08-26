@@ -37,11 +37,17 @@ godot --headless --editor --path <fixture> -- --gdextest-run [--gdextest-* optio
 | `./gdextest doctor` | Run environment checks without building or running tests |
 | `./gdextest scaffold [--apply]` | Wire `SConstruct`, generate entry + smoke suite, run doctor |
 | `./gdextest list` | Build the test library and list selected tests |
+| `./gdextest report <paths…>` | Merge shard result JSON into one JSON/JUnit report |
 | `./gdextest clean` | Remove generated test output |
 
 `test` combines the useful setup steps: missing config initialization, doctor preflight,
 build, fixture generation, and the headless Godot run. A doctor failure returns `2` and
 prevents the build from starting.
+
+`report shard*.json --json=merged.json [--junit=results.xml]` merges the JSON documents
+produced by parallel `--shard` runs: results are concatenated and `totals` recomputed, and
+the merged document (optionally also JUnit XML) is written. It exits `1` when any merged
+test failed or crashed, mirroring the runner.
 
 `scaffold` turns a fresh consumer repo into a wired one: without `--apply` it reports that
 `SConstruct` does not call the framework SConscript; with `--apply` it patches the file
@@ -60,10 +66,31 @@ gdextest test`.
 | `--gdextest-shuffle[=<seed>]` | Randomize run order | Fixed seed reproduces the order; `--gdextest-shuffle` alone uses seed 1 |
 | `--gdextest-shard=<k>/<n>` | Run shard `k` (0-based) of `n` | Stable hash assignment — same test always lands in the same shard |
 | `--gdextest-json=<path>` | Write machine-readable results | The CLI resolves the path to an absolute path before launching Godot |
+| `--gdextest-timeout-ms=<n>` | Per-wait timeout for async tests | CLI forwards `[gdextest.test] timeout_ms` (default 30000) |
+| `--gdextest-isolate-timeout-sec=<n>` | Whole-test async budget | CLI forwards `[gdextest.test] isolate_timeout_sec` (default 60) |
+| `--gdextest-flaky-retries=<n>` | Additional attempts for `TAG_FLAKY` tests | CLI forwards `[gdextest.test] flaky_retries` (default 3) |
+
+CLI-level convenience flags (not runner options):
+
+| Flag | Effect | Notes |
+| --- | --- | --- |
+| `gdextest test --junit=<path>` | Also write JUnit XML | Converted from the run's JSON; `--gdextest-junit=<path>` as a pass-through works too |
+| `gdextest report <paths…> --junit=<path>` | Write merged JUnit XML | Same schema as `--junit`, over merged shards |
 
 Unknown `--gdextest-*` options are not rejected by the CLI: `gdextest test` passes them
 through to the runner verbatim, so new runner flags work without a CLI update (typos are
 still caught by the runner's exit code `2`).
+
+**Godot discovery:** when `--godot`, `config.godot`, the `GODOT` env var, and `godot` on
+`PATH` all miss, the CLI searches for an executable named `Godot_v*` in the project root,
+its ancestors (e.g. a sibling `godot/` checkout), and `$HOME`/common dirs. Binaries whose
+name matches the configured major.minor are preferred, so `./gdextest test` usually needs
+no `--godot` at all.
+
+**Doctor** additionally checks the consumer's `extern/godot-cpp` binding version against the
+framework's supported `godot_version` (via the submodule branch/`git describe`); a mismatch
+prints a loud warning (the compile step is the final arbiter). It also verifies the
+`SConstruct` calls the framework SConscript.
 
 Filter grammar (see `docs/api-reference.md` → `Filter`): `*` and `?` wildcards,
 case-sensitive, matched against `suite.name`, the suite, or the name.
@@ -199,3 +226,9 @@ The repo's `./run_tests.sh` wraps build + wiring + the standard invocation. The 
 `user://` hermetic itself: `test` and `list` wipe `build/gdextest/user-data` before every
 run and point `XDG_DATA_HOME` at it, so residue from a previous run never leaks into
 "should not exist at start" assertions.
+
+When the fixture has no `.godot` cache yet (a fresh checkout or after `clean`), `test` and
+`list` run a single no-trigger warmup pass first: Godot 4.5's first headless-editor run on
+a cold project aborts during shutdown (`testing/notes.md` §5 — the import completes before
+the abort, so the cache is valid), and the warmup makes the real run deterministic instead
+of failing a consumer's very first CI run with a backtrace.

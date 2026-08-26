@@ -2,12 +2,15 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
-#include "config.h"   // kDefaultTimeoutMs (default await timeout)
+#include "config.h"   // runtime_config() (default await timeout, isolate budget)
 
 namespace gdextest {
+
+using Teardown = std::function<void()>;
 
 struct Failure {
     std::string file;
@@ -52,6 +55,16 @@ public:
     void track_object(void *obj);
     void track_ref(void *ref);
 
+    // Register a cleanup callback the runner invokes when the test body ends —
+    // including on GDEX_ABORT_TEST / throws / skips — so suites that create
+    // temp files, sessions, or services are safe to abort at any point.
+    // Teardowns run in reverse registration order (LIFO), before the
+    // tracked-object/ref leak checks. A throwing teardown is caught and
+    // reported as a test failure; remaining teardowns still run.
+    void add_teardown(Teardown teardown) { teardowns_.push_back(std::move(teardown)); }
+
+    const std::vector<Teardown> &teardowns() const { return teardowns_; }
+
     const std::vector<std::string> &resource_failures() const { return resource_failures_; }
 
     // Live engine access for integration tests. The handle is opaque here so the
@@ -65,14 +78,16 @@ public:
     // `co_await ctx.await_frames(2)` inside a GDEX_TEST_ASYNC body; the runner's
     // frame pump resumes the body once the wait resolves. `timeout_ms` bounds
     // how long the wait may take before the test is failed (a safety net for
-    // waits that never resolve). Implemented in async.h.
-    FrameAwaiter await_frames(int64_t frames, int64_t timeout_ms = kDefaultTimeoutMs);
+    // waits that never resolve). 0 means "use the configured default"
+    // (runtime_config().timeout_ms). Implemented in async.h.
+    FrameAwaiter await_frames(int64_t frames, int64_t timeout_ms = 0);
     TimerAwaiter await_timer_ms(int64_t ms, int64_t timeout_ms = 0);
 
 private:
     std::vector<Failure> failures_;
     bool skipped_ = false;
     std::string skip_reason_;
+    std::vector<Teardown> teardowns_;
 
     // Live engine host (the tree node handed to run_all_and_quit), or null for
     // self/sub invocations.

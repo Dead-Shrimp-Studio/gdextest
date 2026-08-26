@@ -198,6 +198,7 @@ if generate_fixture:
     feature = "release" if target_name == "template_release" else "debug"
     library_key = gdextest.get("library_key", toml_config.library_key) or \
         f"{platform}.{feature}.{arch}"
+    scan_timeout_ms = gdextest.get("scan_timeout_ms", toml_config.scan_timeout_ms)
 
     host_targets = ([
         os.path.join(fixture_abs, "addons", "gdextest", "plugin.cfg"),
@@ -234,6 +235,7 @@ if generate_fixture:
             fixture_assets=gdextest.get("fixture_assets", toml_config.fixture_assets),
             host_mode=host_mode,
             project_source_root=env.Dir("#").abspath,
+            scan_timeout_ms=scan_timeout_ms,
         )
         return 0
 

@@ -54,6 +54,11 @@ struct Options {
     int shard_index = 0;
     int shard_count = 1;
     std::string json_path;
+    // Runtime budgets, populated from --gdextest-* flags (the CLI forwards the
+    // consumer's [gdextest.test] keys). Defaults stay in sync with config.h.
+    int timeout_ms = kDefaultTimeoutMs;
+    int isolate_timeout_sec = kDefaultIsolateTimeoutSec;
+    int flaky_retries = kDefaultFlakyRetries;
 };
 
 std::string godot_to_std(const godot::String &value) {
@@ -115,6 +120,21 @@ Options parse_from_godot() {
             continue;
         }
         if (take_value(arg, "--gdextest-json", value)) { options.json_path = value; continue; }
+        if (take_value(arg, "--gdextest-timeout-ms", value)) {
+            options.timeout_ms = parse_int(value, "timeout ms");
+            if (options.timeout_ms <= 0) throw UsageError{"timeout ms must be positive"};
+            continue;
+        }
+        if (take_value(arg, "--gdextest-isolate-timeout-sec", value)) {
+            options.isolate_timeout_sec = parse_int(value, "isolate timeout seconds");
+            if (options.isolate_timeout_sec <= 0) throw UsageError{"isolate timeout seconds must be positive"};
+            continue;
+        }
+        if (take_value(arg, "--gdextest-flaky-retries", value)) {
+            options.flaky_retries = parse_int(value, "flaky retries");
+            if (options.flaky_retries < 0) throw UsageError{"flaky retries must be >= 0"};
+            continue;
+        }
         if (arg.rfind("--gdextest-", 0) == 0) throw UsageError{"unknown option: '" + arg + "'"};
     }
     return options;
@@ -244,11 +264,22 @@ void check_tracked_resources_impl(TestContext &context) {
     }
 }
 
+// Runs the test's registered teardowns in reverse registration order (LIFO).
+// A throwing teardown is recorded as a failure but never prevents the remaining
+// ones; called before the tracked-object/ref leak checks so teardowns can free
+// resources first.
+void run_teardowns(TestContext &context) {
+    for (auto it = context.teardowns().rbegin(); it != context.teardowns().rend(); ++it) {
+        try { (*it)(); }
+        catch (...) { context.fail("", 0, "teardown threw an exception"); }
+    }
+}
+
 TestResult run_one(const TestCase &test_case, void *engine_node) {
     TestResult result;
     result.test_case = &test_case;
     const auto start = std::clock();
-    const int max_retries = (test_case.tags & TAG_FLAKY) ? kDefaultFlakyRetries : 0;
+    const int max_retries = (test_case.tags & TAG_FLAKY) ? runtime_config().flaky_retries : 0;
     for (int attempt = 0; attempt <= max_retries; ++attempt) {
         TestContext context;
         if (engine_node) context.set_engine(engine_node);
@@ -257,6 +288,7 @@ TestResult run_one(const TestCase &test_case, void *engine_node) {
         catch (const TestAborted &) { /* failure is already recorded */ }
         catch (const TestSkipped &) { /* context carries skip state */ }
         catch (...) { context.fail(test_case.file, test_case.line, "unexpected exception in test body"); }
+        run_teardowns(context);
         check_tracked_resources_impl(context);
         g_active_ctx = nullptr;
         result.failure_count = context.failure_count();
@@ -318,6 +350,7 @@ void on_engine_frame();
 // coroutine frame. The caller (on_engine_frame or start_next_test's loop)
 // advances to the next selected test.
 void collect_async_result(RunState &run) {
+    run_teardowns(run.current_ctx);
     check_tracked_resources_impl(run.current_ctx);
     TestResult result;
     result.test_case = run.current_case;
@@ -349,6 +382,7 @@ void collect_async_result(RunState &run) {
 // Fails the current async test with `message` (a timeout / isolate breach) and
 // releases its suspended coroutine frame. The caller advances to the next test.
 void fail_current_async(RunState &run, std::string message) {
+    run_teardowns(run.current_ctx);
     check_tracked_resources_impl(run.current_ctx);
     run.current_ctx.fail(run.current_case ? run.current_case->file : "",
                          run.current_case ? run.current_case->line : 0,
@@ -391,10 +425,10 @@ void on_engine_frame() {
     if (status == AwaitStatus::Pending) {
         // Whole-test isolate budget: a chain of awaits must not run forever even
         // when each individual wait is under its own per-wait timeout.
-        if (now - run->test_start_ms >= static_cast<int64_t>(kDefaultIsolateTimeoutSec) * 1000) {
+        if (now - run->test_start_ms >= static_cast<int64_t>(runtime_config().isolate_timeout_sec) * 1000) {
             fail_current_async(*run, "async test '" + async_test_label(run->current_case) +
                                "' exceeded the per-test isolate timeout of " +
-                               std::to_string(kDefaultIsolateTimeoutSec) + " s");
+                               std::to_string(runtime_config().isolate_timeout_sec) + " s");
             start_next_test(*run);
         }
         return;
@@ -495,6 +529,7 @@ int run_sub_and_count_failures(void (*body)(TestContext &)) {
     TestContext context;
     g_active_ctx = &context;
     try { body(context); } catch (...) {}
+    run_teardowns(context);
     g_active_ctx = nullptr;
     return context.failure_count();
 }
@@ -503,6 +538,7 @@ int run_sub_and_write_json(void (*body)(TestContext &), const char *path) {
     TestContext context;
     g_active_ctx = &context;
     try { body(context); } catch (...) {}
+    run_teardowns(context);
     g_active_ctx = nullptr;
     // Synthetic case so the JSON document has a suite/name; the self-tests only
     // assert on status/totals/failures/reason, not on these identifiers.
@@ -540,9 +576,9 @@ bool SubAsyncPump::step(int64_t tick_ms) {
     now_ms_ += tick_ms;
     const AwaitStatus status = AsyncCoordinator::instance().advance(now_ms_);
     if (status == AwaitStatus::Pending) {
-        if (now_ms_ - test_start_ms_ >= static_cast<int64_t>(kDefaultIsolateTimeoutSec) * 1000) {
+        if (now_ms_ - test_start_ms_ >= static_cast<int64_t>(runtime_config().isolate_timeout_sec) * 1000) {
             ctx_->fail("", 0, "async test exceeded the per-test isolate timeout of " +
-                              std::to_string(kDefaultIsolateTimeoutSec) + " s");
+                              std::to_string(runtime_config().isolate_timeout_sec) + " s");
             finish();
             return false;
         }
@@ -576,6 +612,7 @@ void SubAsyncPump::finish() {
             ctx_->fail("", 0, "unexpected exception in async test body");
         }
     }
+    if (ctx_) run_teardowns(*ctx_);
     g_active_ctx = nullptr;
     AsyncCoordinator::instance().clear();
     AsyncCoordinator::instance().set_driver_active(false);
@@ -612,6 +649,11 @@ void run_all_and_quit(void *tree_node) {
         if (node && node->get_tree()) node->get_tree()->quit(2);
         return;
     }
+    // Apply the runtime budgets before any test runs; async waits read them
+    // when their own timeout_ms argument is left at 0 (the default).
+    runtime_config().timeout_ms = options.timeout_ms;
+    runtime_config().isolate_timeout_sec = options.isolate_timeout_sec;
+    runtime_config().flaky_retries = options.flaky_retries;
     if (!options.run) return;
     auto *node = static_cast<godot::Node *>(tree_node);
     godot::SceneTree *tree = node ? node->get_tree() : nullptr;

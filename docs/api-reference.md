@@ -134,18 +134,26 @@ captured into the promise and reported the same way as for sync tests (a thrown
 
 ### Waits and timeouts
 
-- `ctx.await_frames(frames, timeout_ms = kDefaultTimeoutMs)` — resumes after `frames`
+- `ctx.await_frames(frames, timeout_ms = 0)` — resumes after `frames`
   `process_frame` ticks. `await_frames(0)` resolves immediately without consuming a tick.
+  A `timeout_ms` of `0` means "use the configured default" (below).
 - `ctx.await_timer_ms(ms, timeout_ms = 0)` — resumes after at least `ms` milliseconds
   (measured with `Time::get_ticks_msec()`). A `timeout_ms` of `0` defaults to
-  `max(ms, kDefaultTimeoutMs)`, so the timer's own duration is always a valid wait.
+  `max(ms, configured_timeout_ms)`, so the timer's own duration is always a valid wait.
 
 Every suspension carries a deadline. If the wait does not resolve by its deadline, the
 runner **fails the test** with a `timed out` failure (status `fail` in JSON, counted in
 `fail`) and destroys the suspended coroutine — a test that never resolves is red, never a
-hang. Separately, `kDefaultIsolateTimeoutSec` (60 s) bounds the **whole test**: a chain of
+hang. Separately, the per-test **isolate budget** bounds the *whole test*: a chain of
 awaits that individually fit under the per-wait timeout but together exceed the budget is
 failed too.
+
+The budgets are runtime-tunable — no framework rebuild needed. The runner reads them
+from `--gdextest-timeout-ms`, `--gdextest-isolate-timeout-sec`, and
+`--gdextest-flaky-retries`, which the CLI populates from `[gdextest.test]` in
+`.gdextest.toml` (`timeout_ms`, `isolate_timeout_sec`, `flaky_retries`; defaults 30000,
+60, 3). `TAG_FLAKY` tests use `flaky_retries` additional attempts; the runner's
+`kDefault*` constants in `framework/config.h` remain the fallback defaults.
 
 ### Semantics
 
@@ -235,13 +243,23 @@ public:
 
     // Async waits: awaitables for `co_await` in GDEX_TEST_ASYNC bodies
     // (defined in async.h). See [Async tests](#async-tests).
-    FrameAwaiter await_frames(int64_t frames, int64_t timeout_ms = kDefaultTimeoutMs);
+    FrameAwaiter await_frames(int64_t frames, int64_t timeout_ms = 0);
     TimerAwaiter await_timer_ms(int64_t ms, int64_t timeout_ms = 0);
+
+    void add_teardown(Teardown teardown);  // cleanup callback (LIFO, runs on abort)
 
     void track_object(void *obj);  // track a Godot Object by instance ID
     void track_ref(void *ref);      // track a RefCounted's initial count
     const std::vector<std::string> &resource_failures() const;
 };
+```
+
+`add_teardown(cb)` registers a cleanup callback the runner invokes when the test body ends —
+**including on `GDEX_ABORT_TEST`, throws, and skips** — so suites that create temp
+files/dirs, sessions, or services are safe to abort at any point. Teardowns run in reverse
+registration order (LIFO), before the tracked-object/ref leak checks, so a teardown can
+free resources first. A throwing teardown is caught and reported as a test failure;
+remaining teardowns still run.
 ```
 
 The runner constructs one `TestContext` per test and injects it as `ctx`. `abort_test` is

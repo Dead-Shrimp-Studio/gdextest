@@ -196,14 +196,21 @@ private:
 };
 
 // --- TestContext::await_* (declared in context.h, defined here) ---------------
+// `timeout_ms == 0` means "use the configured default" — runtime_config() is
+// populated by the runner from --gdextest-timeout-ms (which the CLI fills from
+// [gdextest.test] timeout_ms), so CI can tune budgets without rebuilding.
 inline FrameAwaiter TestContext::await_frames(int64_t frames, int64_t timeout_ms) {
+    if (timeout_ms <= 0) timeout_ms = runtime_config().timeout_ms;
     return FrameAwaiter(*this, frames, timeout_ms);
 }
 
 inline TimerAwaiter TestContext::await_timer_ms(int64_t ms, int64_t timeout_ms) {
     // A timer's own duration is a legitimate wait; the timeout only guards
     // against waits that never resolve, so it defaults to at least the wait.
-    if (timeout_ms <= 0) timeout_ms = ms > kDefaultTimeoutMs ? ms : kDefaultTimeoutMs;
+    if (timeout_ms <= 0) {
+        const int64_t configured = runtime_config().timeout_ms;
+        timeout_ms = ms > configured ? ms : configured;
+    }
     return TimerAwaiter(*this, ms, timeout_ms);
 }
 

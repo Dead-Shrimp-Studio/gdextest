@@ -143,16 +143,21 @@ def generate_fixture(*, project_root: str | os.PathLike[str], library_path: str 
                      extension_manifest: str | os.PathLike[str] | None = None,
                      fixture_assets: Iterable[str] = (),
                      host_mode: str = "editor",
-                     project_source_root: str | os.PathLike[str] | None = None) -> None:
+                     project_source_root: str | os.PathLike[str] | None = None,
+                     scan_timeout_ms: int = 20000) -> None:
     """Create or refresh a generated fixture directory.
 
     `plugin_class` names the native EditorPlugin registered by the entry point;
     the generated host wrapper instantiates it after the editor scan settles.
+    `scan_timeout_ms` bounds how long the editor's first filesystem scan may
+    take before the host fails the run (slow CI machines, large repos).
     """
     if host_mode not in {"editor", "runtime"}:
         raise ValueError(f"unsupported gdextest host mode: {host_mode}")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", plugin_class):
         raise ValueError(f"invalid plugin_class: {plugin_class!r}")
+    if scan_timeout_ms <= 0:
+        raise ValueError(f"invalid scan_timeout_ms: {scan_timeout_ms!r}")
     root = Path(project_root)
     library = Path(library_path)
     addon = root / "addons" / "gdextest"
@@ -171,7 +176,10 @@ def generate_fixture(*, project_root: str | os.PathLike[str], library_path: str 
     if host_mode == "editor":
         (addon / "plugin.cfg").write_text(PLUGIN_CFG, encoding="utf-8")
         (addon / "plugin.gd").write_text(
-            EDITOR_PLUGIN_GD.replace("GdextestPlugin", plugin_class), encoding="utf-8")
+            EDITOR_PLUGIN_GD.replace("GdextestPlugin", plugin_class)
+                            .replace("const SCAN_TIMEOUT_MS := 20000",
+                                     f"const SCAN_TIMEOUT_MS := {scan_timeout_ms}"),
+            encoding="utf-8")
     else:
         (addon / "runtime.gd").write_text(
             RUNTIME_PLUGIN_GD.replace("GdextestPlugin", plugin_class), encoding="utf-8")
@@ -212,6 +220,7 @@ def main() -> int:
     parser.add_argument("--native-extension", action="append", default=[])
     parser.add_argument("--fixture-asset", action="append", default=[])
     parser.add_argument("--host-mode", choices=("editor", "runtime"), default="editor")
+    parser.add_argument("--scan-timeout-ms", type=int, default=20000)
     args = parser.parse_args()
     basename = args.library_basename or args.library.name
     generate_fixture(
@@ -228,6 +237,7 @@ def main() -> int:
         fixture_assets=args.fixture_asset,
         host_mode=args.host_mode,
         project_source_root=Path.cwd(),
+        scan_timeout_ms=args.scan_timeout_ms,
     )
     return 0
 

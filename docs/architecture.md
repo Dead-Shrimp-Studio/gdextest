@@ -48,10 +48,12 @@ The most important design constraint, repeated in comments throughout the code:
    accessors that hand a live `SceneTree` to integration test bodies). A body still gets
    only a `TestContext&`; reaching the engine is opt-in via `engine.h` + a `TAG_INTEGRATION`
    tag.
-3. **The adapter is the host's only file that knows the extension.** `src/support/adapter.cpp`
-   is per-extension glue (~40 lines): trigger detection, `bootstrap()`, and the call into
-   the runner. The framework ships it as a template; each host rewrites the `bootstrap()`
-   and (if needed) the hook point.
+3. **The adapter is the host's only file that knows the extension.** The contract is
+   declared in `src/framework/adapter.h` — `gdextest_adapter::maybe_run(godot::Node*)` — so
+   custom adapters fail at compile time on a signature mismatch, not at link time.
+   `src/support/adapter.cpp` is the reference implementation (~40 lines): trigger
+   detection, `bootstrap()`, and the call into the runner. The framework ships it as a
+   template; each host rewrites the `bootstrap()` and (if needed) the hook point.
 4. **Assertions record, they never throw.** A failing `GDX_EXPECT_*` appends a `Failure` to
    the test's `TestContext` and execution continues, so one test reports every failing
    check. The single exception is `GDEX_ABORT_TEST`, which throws a private `TestAborted`
@@ -63,7 +65,10 @@ The most important design constraint, repeated in comments throughout the code:
    advances the wait and resumes the coroutine when it resolves. Tests still run one at a
    time, in declaration order — no interleaving. Timeouts (`kDefaultTimeoutMs` per wait,
    `kDefaultIsolateTimeoutSec` per test) bound every suspension so a test that never
-   resolves fails instead of hanging the run.
+   resolves fails instead of hanging the run. The budgets are runtime-tunable: the runner
+   reads `--gdextest-timeout-ms` / `--gdextest-isolate-timeout-sec` /
+   `--gdextest-flaky-retries`, which the CLI populates from `[gdextest.test]` in the
+   consumer's `.gdextest.toml`, so CI can raise them without rebuilding the framework.
 
 ## Lifecycle of a test run
 

@@ -2,10 +2,10 @@
 // The plugin's _ready() is the M0-verified safe editor hook (plan §3).
 #ifdef GDEXTEST_ENABLED
 
+#include "framework/adapter.h"
+
 #include <godot_cpp/classes/editor_plugin.hpp>
 #include <godot_cpp/godot.hpp>
-
-namespace gdextest_adapter { void maybe_run(godot::Node *tree_node); }
 
 // The EditorPlugin the fixture project enables. Its _ready() is the safe hook point
 // (autoload under --editor hangs — see docs/testing/notes.md §3.3).

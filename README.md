@@ -8,9 +8,11 @@ can exercise both pure logic and live engine APIs (singletons, your own register
 filtering/sharding.
 
 > **Status:** The current implementation supports sync and C++20 async tests, flaky retries,
-> tracked Godot object/reference teardown checks, structured configuration, diagnostics,
-> JSON output, editor and runtime fixtures, and the CLI-driven external-consumer flow on
-> Godot 4.5.
+> per-test teardown callbacks, tracked Godot object/reference teardown checks, structured
+> configuration, runtime-tunable timeouts, diagnostics (including a godot-cpp binding
+> check), JSON **and JUnit XML** output with a shard-merging `report` command, editor and
+> runtime fixtures, Godot binary auto-discovery, and the CLI-driven external-consumer flow
+> on Godot 4.5.
 
 ---
 
@@ -34,6 +36,9 @@ same environment checks as `gdextest doctor`, builds the test library, generates
 disposable fixture, and runs Godot headlessly. On subsequent runs it keeps your config,
 re-checks the environment, and repeats the build/run. It never overwrites an existing
 `.gdextest.toml`; edit that file when your layout needs customization.
+
+No `--godot` needed when a `Godot_v*` binary is on `PATH`, in the project or an ancestor
+dir, or under `$HOME` — the CLI discovers it (preferring the configured major.minor).
 
 Repositories that need `SConstruct` wiring (and optionally a custom entry point) can get
 them generated: `./gdextest scaffold --apply` patches `SConstruct` (with a `.bak` backup),
@@ -156,6 +161,13 @@ lists; the options are read from the user list):
 | `--gdextest-shard=k/n` | run shard k of n (stable hash assignment) |
 | `--gdextest-shuffle[=seed]` | randomize order (fixed seed = reproducible) |
 | `--gdextest-json=<path>` | write machine-readable results to a file |
+| `--gdextest-timeout-ms=<n>` | per-wait async timeout (from `[gdextest.test] timeout_ms`) |
+| `--gdextest-isolate-timeout-sec=<n>` | whole-test async budget (from `[gdextest.test] isolate_timeout_sec`) |
+| `--gdextest-flaky-retries=<n>` | retries for `TAG_FLAKY` tests (from `[gdextest.test] flaky_retries`) |
+
+CLI convenience: `gdextest test --junit=<path>` also writes JUnit XML (rendered as
+annotations by GitHub Actions), and `gdextest report 'shard*.json' --json=m.json
+--junit=m.xml` merges parallel shard results into one report.
 
 Async tests need the engine: run them through the trigger (the fixture's
 `EditorPlugin`), where the runner can pump frames. The `self` suite also verifies the

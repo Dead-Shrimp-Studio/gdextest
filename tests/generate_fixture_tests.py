@@ -108,10 +108,46 @@ def test_invalid_plugin_class_rejected() -> None:
             assert "plugin_class" in str(error)
 
 
+def test_generated_plugin_uses_configured_scan_timeout() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "libtest.so"
+        source.write_bytes(b"test-library")
+        MODULE.generate_fixture(
+            project_root=root / "project",
+            library_path=source,
+            library_basename="libtest.so",
+            manifest_basename="gdextest.gdextension",
+            scan_timeout_ms=90000,
+        )
+        plugin = (root / "project" / "addons" / "gdextest" / "plugin.gd").read_text()
+        assert "const SCAN_TIMEOUT_MS := 90000" in plugin
+
+
+def test_invalid_scan_timeout_rejected() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "libtest.so"
+        source.write_bytes(b"test-library")
+        try:
+            MODULE.generate_fixture(
+                project_root=root / "project",
+                library_path=source,
+                library_basename="libtest.so",
+                manifest_basename="gdextest.gdextension",
+                scan_timeout_ms=0,
+            )
+            assert False, "expected ValueError for a non-positive scan timeout"
+        except ValueError as error:
+            assert "scan_timeout_ms" in str(error)
+
+
 if __name__ == "__main__":
     test_generated_manifest_is_referenced()
     test_generated_plugin_uses_scan_safe_host()
     test_generated_plugin_uses_configured_plugin_class()
     test_generated_runtime_host_uses_configured_plugin_class()
     test_invalid_plugin_class_rejected()
+    test_generated_plugin_uses_configured_scan_timeout()
+    test_invalid_scan_timeout_rejected()
     print("fixture generator tests: ok")

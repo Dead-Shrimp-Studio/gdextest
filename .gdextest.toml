@@ -5,6 +5,11 @@ godot_version = "4.5"
 [gdextest.tests]
 sources = ["tests/**/*.cpp"]
 
+[gdextest.test]
+timeout_ms = 30000
+isolate_timeout_sec = 60
+flaky_retries = 3
+
 [gdextest.host]
 mode = "editor"
 entry_symbol = "gdextest_library_init"
@@ -15,6 +20,7 @@ directory = "build/gdextest/project"
 project_name = "gdextest fixture"
 native_extensions = []
 assets = []
+scan_timeout_ms = 20000
 
 [gdextest.output]
 directory = "bin"

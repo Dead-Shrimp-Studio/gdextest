@@ -114,6 +114,11 @@ godot_version = "4.5"
 sources = ["tests/**/*.cpp"]
 exclude = ["tests/helpers/**"]
 
+[gdextest.test]
+timeout_ms = 30000          # per async wait
+isolate_timeout_sec = 60    # whole-test async budget
+flaky_retries = 3           # additional attempts for TAG_FLAKY tests
+
 [gdextest.host]
 mode = "editor" # editor or runtime
 entry_symbol = "gdextest_library_init"
@@ -125,6 +130,7 @@ directory = "build/gdextest/project"
 project_name = "my extension tests"
 native_extensions = []
 assets = ["tests/fixtures/**"]
+scan_timeout_ms = 20000     # how long the editor's first filesystem scan may take
 
 [gdextest.output]
 directory = "bin"
@@ -133,6 +139,11 @@ name = "libmy_extension_tests"
 [gdextest.build]
 args = [] # extra scons args, e.g. ["platform=windows", "target=editor", "arch=x86_64"]
 ```
+
+The `[gdextest.test]` budgets are forwarded to the runner as `--gdextest-*` flags on every
+CLI run — CI on slow machines or under ASan can raise them without rebuilding the
+framework. `scan_timeout_ms` bounds the editor filesystem scan in the generated fixture
+host (raise it for large repos / loaded CI).
 
 The `test` preflight validates the configuration, framework path, Godot version, SCons,
 discovered test sources, and any configured consumer extension files on every run. Run
@@ -210,13 +221,16 @@ host lifecycle itself is insufficient.
 ## 7. Write a custom adapter (optional)
 
 If the default host is not enough, `adapter.cpp` is the **only file that should know your
-extension's wiring**. Model it on
+extension's wiring**. The contract lives in [`framework/adapter.h`](../src/framework/adapter.h)
+— one declaration (`gdextest_adapter::maybe_run(godot::Node*)`) — so a custom adapter with
+a wrong signature fails at compile time, not link time. Model it on
 [`src/support/adapter.cpp`](../src/support/adapter.cpp) — ~40 lines by design:
 
 ```cpp
 #ifdef GDEXTEST_ENABLED   // test build only
 
-#include <godot_cpp/classes/node.hpp>
+#include "framework/adapter.h"   // declares gdextest_adapter::maybe_run
+
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 
@@ -375,12 +389,20 @@ project root. Optional extras your env can carry: `sanitize=true` (ASan/UBSan) a
 ## 11. Run and wire into CI
 
 ```bash
-./gdextest test --json=results.json
+./gdextest test --json=results.json --junit=results.xml
 ```
 
-Exit code `0` = green, `1` = red — map it straight to your pipeline. For parallel CI use
-`--gdextest-shard=k/n` (stable assignment, disjoint shards). Set `XDG_DATA_HOME` to a temp
-dir in CI so `user://` writes are hermetic (`testing/notes.md` §3.1). See
+Exit code `0` = green, `1` = red — map it straight to your pipeline. `--junit` converts the
+run's JSON to JUnit XML, which GitHub Actions and other CI surfaces render as inline
+annotations. For parallel CI use `--gdextest-shard=k/n` (stable assignment, disjoint
+shards) per job, then merge the shard documents:
+
+```bash
+./gdextest report 'shard*.json' --json=merged.json --junit=merged.xml
+```
+
+`report` exits `1` when any merged test failed or crashed. `user://` is kept hermetic by the
+CLI itself (it wipes `build/gdextest/user-data` before every run). See
 [cli.md](cli.md) for the full flag reference.
 
 ## Troubleshooting

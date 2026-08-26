@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
+import xml.etree.ElementTree as ET
 
 from gdextest_config import (
     Config,
     discover_sources,
     find_project_root,
+    godot_cpp_version,
     godot_executable,
     godot_version,
     load_config,
@@ -34,11 +38,17 @@ mode = "editor"
 entry_symbol = "gdextest_library_init"
 plugin_class = "GdextestPlugin"
 
+[gdextest.test]
+timeout_ms = 30000
+isolate_timeout_sec = 60
+flaky_retries = 3
+
 [gdextest.fixture]
 directory = "build/gdextest/project"
 project_name = "gdextest fixture"
 native_extensions = []
 assets = []
+scan_timeout_ms = 20000
 
 [gdextest.output]
 directory = "bin"
@@ -194,14 +204,40 @@ def _run_build(config: Config) -> None:
     subprocess.run(_scons_command(config), cwd=config.project_root, env=env, check=True)
     if not _library_path(config):
         raise RuntimeError(
-            "the test library was not produced; your SConstruct does not appear to "
-            "call extern/gdextest/SConscript — see consumer-guide §5")
+            f"the test library was not produced (expected {config.out_dir}/{config.out_name}*); "
+            "your SConstruct does not appear to call extern/gdextest/SConscript — "
+            "see consumer-guide §5")
+
+
+def _mode_args(config: Config) -> list[str]:
+    return ["--headless", "--editor"] if config.host_mode == "editor" else ["--headless"]
 
 
 def _godot_command(config: Config, executable: str, *user_args: str) -> list[str]:
-    mode_args = ["--headless", "--editor"] if config.host_mode == "editor" else ["--headless"]
-    return [executable, *mode_args, "--path", str(config.fixture_path), "--",
+    return [executable, *_mode_args(config), "--path", str(config.fixture_path), "--",
             "--gdextest-run", *user_args]
+
+
+def _warm_fixture(config: Config, executable: str) -> None:
+    """Run Godot once against a freshly generated fixture to build its cache.
+
+    Godot 4.5's first headless-editor run on a project with no `.godot` cache
+    intermittently aborts during cold-start shutdown (SIGSEGV/abort, exit 134 —
+    the race documented in testing/notes.md §5). The import completes before
+    the abort and the cache is valid afterwards, so a single no-trigger warmup
+    pass makes the real run deterministic — without it, a consumer's *first*
+    `gdextest test` on a fresh checkout aborts with a confusing backtrace.
+    """
+    if (config.fixture_path / ".godot").is_dir():
+        return
+    print("gdextest: warming the fixture's first-run Godot cache "
+          "(cold-start shutdown quirk; harmless)", flush=True)
+    command = [executable, *_mode_args(config), "--path", str(config.fixture_path),
+               "--quit-after", "2"]
+    # The warmup is expected to abort (exit 134) on a cold cache; the real run
+    # below is the actual pass/fail signal.
+    subprocess.run(command, cwd=config.project_root, env=_run_environment(config),
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _run_environment(config: Config) -> dict[str, str]:
@@ -221,6 +257,84 @@ def _print_check(label: str, value: str, ok: bool) -> bool:
     return ok
 
 
+def _write_junit(results: list[dict], path: str) -> None:
+    """Serialize gdextest results (the JSON `results` array) as JUnit XML.
+
+    GitHub Actions and other CI surfaces render JUnit natively, so the same
+    pass/fail/skipped/crashed data becomes inline annotations.
+    """
+    tests = len(results)
+    failures = sum(1 for result in results if result.get("status") in ("fail", "crashed"))
+    skipped = sum(1 for result in results if result.get("status") == "skipped")
+    suites = ET.Element("testsuites", {"tests": str(tests),
+                                        "failures": str(failures),
+                                        "skipped": str(skipped)})
+    suite = ET.SubElement(suites, "testsuite", {"name": "gdextest",
+                                                 "tests": str(tests),
+                                                 "failures": str(failures),
+                                                 "skipped": str(skipped)})
+    for result in results:
+        case = ET.SubElement(suite, "testcase", {
+            "classname": result.get("suite", ""),
+            "name": result.get("name", ""),
+            "time": f"{result.get('duration_ms', 0) / 1000.0:.3f}",
+        })
+        if result.get("status") in ("fail", "crashed"):
+            message = "; ".join(
+                f"{failure.get('file', '')}:{failure.get('line', 0)} "
+                f"{failure.get('message', '')}"
+                for failure in result.get("failures", [])) or "test failed"
+            ET.SubElement(case, "failure", {"message": message}).text = message
+        elif result.get("status") == "skipped":
+            ET.SubElement(case, "skipped",
+                          {"message": result.get("reason", "")}).text = result.get("reason", "")
+    ET.ElementTree(suites).write(path, encoding="utf-8", xml_declaration=True)
+
+
+def _json_to_junit(json_path: str, junit_path: str) -> None:
+    with open(json_path, encoding="utf-8") as handle:
+        document = json.load(handle)
+    _write_junit(document.get("results", []), junit_path)
+
+
+def _load_result_documents(patterns: list[str]) -> list[dict]:
+    """Load the JSON result documents named by files or glob patterns."""
+    documents: list[dict] = []
+    for pattern in patterns:
+        if any(char in pattern for char in "*?["):
+            paths = sorted(Path().glob(pattern))
+        else:
+            paths = [Path(pattern)]
+        for path in paths:
+            if not path.is_file():
+                raise RuntimeError(f"result file not found: {path}")
+            with open(path, encoding="utf-8") as handle:
+                documents.append(json.load(handle))
+    if not documents:
+        raise RuntimeError("no result files matched")
+    return documents
+
+
+def _merge_documents(documents: list[dict]) -> dict:
+    """Merge shard result documents: concatenate results, recompute totals."""
+    results: list[dict] = []
+    for document in documents:
+        results.extend(document.get("results", []))
+    totals = {"pass": 0, "fail": 0, "skip": 0, "crashed": 0}
+    for result in results:
+        status = result.get("status")
+        if status == "crashed":
+            totals["crashed"] += 1
+            totals["fail"] += 1
+        elif status == "fail":
+            totals["fail"] += 1
+        elif status == "skipped":
+            totals["skip"] += 1
+        else:
+            totals["pass"] += 1
+    return {"totals": totals, "results": results}
+
+
 def _write_config(root: Path, *, force: bool = False) -> bool:
     """Create the starter config without replacing consumer changes by default."""
     config_path = root / ".gdextest.toml"
@@ -233,11 +347,19 @@ def _write_config(root: Path, *, force: bool = False) -> bool:
 
 
 def _sconstruct_wired(root: Path) -> bool:
+    """True when the SConstruct calls the framework SConscript.
+
+    A bare `gdextest` string is not enough — consumers that wire godot-cpp
+    through the framework's nested submodule mention gdextest in paths without
+    calling the SConscript. Look for the documented call site instead.
+    """
     sconstruct = root / "SConstruct"
     if not sconstruct.is_file():
         return False
     content = sconstruct.read_text(encoding="utf-8", errors="replace")
-    return "gdextest" in content
+    # The documented consumer pattern, or the framework's own relative call
+    # (this repo's SConstruct wires `env.SConscript("SConscript", ...)`).
+    return "gdextest/SConscript" in content or '"SConscript"' in content
 
 
 def _run_doctor(config: Config, godot_override: str | None) -> int:
@@ -266,19 +388,31 @@ def _run_doctor(config: Config, godot_override: str | None) -> int:
     framework_sconscript = config.framework_dir / "SConscript"
     ok &= _print_check("framework SConscript", str(framework_sconscript),
                        framework_sconscript.is_file())
+    cpp_version = godot_cpp_version(config.project_root)
+    expected_cpp = ".".join(config.godot_version.split(".")[:2])
+    if cpp_version is None:
+        print("[..] godot-cpp: not found at extern/godot-cpp (binding version unverified)",
+              flush=True)
+    elif cpp_version == expected_cpp:
+        ok &= _print_check("godot-cpp", f"{cpp_version} (matches)", True)
+    else:
+        print(f"[!!] godot-cpp: {cpp_version} does not match the framework's {expected_cpp} "
+              f"(the framework uses {expected_cpp}-only GDExtension APIs); "
+              "the test build may fail to compile", flush=True)
     sconstruct = config.project_root / "SConstruct"
     if sconstruct.is_file():
         content = sconstruct.read_text(encoding="utf-8", errors="replace")
-        if "gdextest" in content:
+        if "gdextest/SConscript" in content or '"SConscript"' in content:
             ok &= _print_check("SConstruct wiring", "gdextest SConscript referenced", True)
-        elif "SConscript" not in content:
+        elif "gdextest" not in content and "SConscript" not in content:
             ok &= _print_check(
                 "SConstruct wiring",
                 "no gdextest/SConscript reference; SConstruct must call "
                 "extern/gdextest/SConscript (consumer-guide §5)", False)
         else:
-            print("[..] SConstruct wiring: SConscript used but no gdextest reference; "
-                  "verify extern/gdextest/SConscript is called somewhere", flush=True)
+            print("[..] SConstruct wiring: SConscript/gdextest mentioned but no "
+                  "extern/gdextest/SConscript call; verify the framework SConscript "
+                  "is wired (consumer-guide §5)", flush=True)
     else:
         ok &= _print_check("SConstruct wiring", "SConstruct not found", False)
     extension_library = locate_extension_library(config)
@@ -369,10 +503,45 @@ def cmd_scaffold(args: argparse.Namespace) -> int:
     return _run_doctor(config, args.godot)
 
 
+def _extract_junit_passthrough(user_args: list[str]) -> str | None:
+    """Pull a --gdextest-junit=<path> pass-through arg out of the user list.
+
+    The runner only speaks JSON; the CLI converts that JSON to JUnit after the
+    run, so the runner never sees this flag.
+    """
+    for arg in list(user_args):
+        if arg.startswith("--gdextest-junit="):
+            user_args.remove(arg)
+            return arg[len("--gdextest-junit="):]
+    return None
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    """Merge shard result documents into one JSON/JUnit report.
+
+    Parallel CI runs `test --gdextest-shard=k/n --json=shard{k}.json` per job;
+    `report shard*.json --json=merged.json` turns them into a single document.
+    Exits 1 when any merged test failed or crashed (mirrors the runner).
+    """
+    documents = _load_result_documents(args.paths)
+    merged = _merge_documents(documents)
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as handle:
+            json.dump(merged, handle, indent=2)
+        print(f"gdextest: wrote {args.json}")
+    else:
+        print(json.dumps(merged, indent=2))
+    if args.junit:
+        _write_junit(merged["results"], args.junit)
+        print(f"gdextest: wrote {args.junit}")
+    return 1 if merged["totals"]["fail"] or merged["totals"]["crashed"] else 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     config = load_config(args.project_root, args.framework_dir)
     _run_build(config)
     executable = godot_executable(config, args.godot)
+    _warm_fixture(config, executable)
     user_args = [*getattr(args, "passthrough", []), "--gdextest-list"]
     command = _godot_command(config, executable, *user_args)
     return subprocess.run(command, cwd=config.project_root, env=_run_environment(config)).returncode
@@ -403,12 +572,41 @@ def cmd_test(args: argparse.Namespace) -> int:
     if args.shuffle is not None:
         user_args.append("--gdextest-shuffle" if args.shuffle == "" else
                          f"--gdextest-shuffle={args.shuffle}")
+    # Runtime budgets from [gdextest.test]; always forwarded so the runner honors
+    # TOML values without a framework rebuild.
+    user_args.append(f"--gdextest-timeout-ms={config.timeout_ms}")
+    user_args.append(f"--gdextest-isolate-timeout-sec={config.isolate_timeout_sec}")
+    user_args.append(f"--gdextest-flaky-retries={config.flaky_retries}")
+
+    junit_path = getattr(args, "junit", None)
+    passthrough_junit = _extract_junit_passthrough(user_args)
+    if passthrough_junit and not junit_path:
+        junit_path = passthrough_junit
+    json_path = None
     if args.json:
         # Godot chdirs to the fixture dir (--path), so a relative path would resolve
         # against the fixture, not the user's cwd. Resolve it up front.
-        user_args.append(f"--gdextest-json={os.path.abspath(args.json)}")
-    return subprocess.run(_godot_command(config, executable, *user_args),
+        json_path = os.path.abspath(args.json)
+        user_args.append(f"--gdextest-json={json_path}")
+    elif junit_path:
+        # JUnit is derived from the runner's JSON document; keep it in a temp file.
+        json_path = os.path.join(tempfile.gettempdir(), f"gdextest-results-{os.getpid()}.json")
+        user_args.append(f"--gdextest-json={json_path}")
+    _warm_fixture(config, executable)
+    code = subprocess.run(_godot_command(config, executable, *user_args),
                           cwd=config.project_root, env=_run_environment(config)).returncode
+    if junit_path and json_path and os.path.isfile(json_path):
+        try:
+            _json_to_junit(json_path, os.path.abspath(junit_path))
+            print(f"gdextest: wrote {os.path.abspath(junit_path)}")
+        except (OSError, ValueError) as error:
+            print(f"gdextest: warning: could not write JUnit output: {error}", file=sys.stderr)
+    if json_path and not args.json:
+        try:
+            os.unlink(json_path)
+        except OSError:
+            pass
+    return code
 
 
 def cmd_clean(args: argparse.Namespace) -> int:
@@ -451,7 +649,14 @@ def main(argv: list[str] | None = None) -> int:
     test.add_argument("--shard")
     test.add_argument("--shuffle", nargs="?", const="", default=None)
     test.add_argument("--json")
+    test.add_argument("--junit", help="also write JUnit XML (converted from the run's JSON)")
     test.set_defaults(function=cmd_test)
+
+    report = subparsers.add_parser("report", help="merge shard result JSON into one report")
+    report.add_argument("paths", nargs="+", help="result JSON files or globs, e.g. 'shard*.json'")
+    report.add_argument("--json", help="write merged JSON here (default: stdout)")
+    report.add_argument("--junit", help="write merged results as JUnit XML here")
+    report.set_defaults(function=cmd_report)
 
     listing = subparsers.add_parser("list", help="build and list tests")
     listing.add_argument("--godot")

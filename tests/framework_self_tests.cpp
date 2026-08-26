@@ -229,6 +229,69 @@ GDEX_TEST(self, skip_stops_body_and_is_not_a_failure) {
     GDEX_EXPECT_FALSE(reached_after_skip); // the body stopped at the skip
 }
 
+// --- teardown: registered callbacks run even on abort/skip -------------------
+GDEX_TEST(self, teardowns_run_on_normal_completion) {
+    static int teardown_calls = 0;
+    teardown_calls = 0;
+    int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        ctx.add_teardown([] { ++teardown_calls; });
+        GDEX_EXPECT_TRUE(true);
+    });
+    GDEX_EXPECT_EQ(n, 0);
+    GDEX_EXPECT_EQ(teardown_calls, 1);
+}
+
+GDEX_TEST(self, teardowns_run_when_body_aborts) {
+    static int teardown_calls = 0;
+    teardown_calls = 0;
+    int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        ctx.add_teardown([] { ++teardown_calls; });
+        GDEX_ABORT_TEST("stop here");
+    });
+    GDEX_EXPECT_EQ(n, 1);          // the abort is still a failure
+    GDEX_EXPECT_EQ(teardown_calls, 1);   // ...and the teardown still ran
+}
+
+GDEX_TEST(self, teardowns_run_when_body_skips) {
+    static int teardown_calls = 0;
+    teardown_calls = 0;
+    int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        ctx.add_teardown([] { ++teardown_calls; });
+        GDEX_SKIP("precondition not met");
+    });
+    GDEX_EXPECT_EQ(n, 0);          // a skip is not a failure
+    GDEX_EXPECT_EQ(teardown_calls, 1);   // the teardown still ran
+}
+
+GDEX_TEST(self, teardowns_run_in_reverse_registration_order) {
+    static std::vector<std::string> order;
+    order.clear();
+    int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        ctx.add_teardown([] { order.push_back("first"); });
+        ctx.add_teardown([] { order.push_back("second"); });
+    });
+    GDEX_EXPECT_EQ(n, 0);
+    GDEX_EXPECT_EQ(order.size(), 2u);
+    GDEX_EXPECT_STR_EQ(order[0], "second");   // LIFO: last registered runs first
+    GDEX_EXPECT_STR_EQ(order[1], "first");
+}
+
+GDEX_TEST(self, throwing_teardown_fails_test_and_others_still_run) {
+    static int teardown_calls = 0;
+    teardown_calls = 0;
+    int n = gdextest::run_sub_and_count_failures([](gdextest::TestContext &ctx) {
+        (void)ctx;
+        ctx.add_teardown([] { throw 42; });
+        ctx.add_teardown([] { ++teardown_calls; });
+    });
+    GDEX_EXPECT_EQ(n, 1);                    // the throwing teardown is a failure
+    GDEX_EXPECT_EQ(teardown_calls, 1);       // the remaining teardown still ran
+}
+
 // --- JSON output: the writer must emit the documented schema ---------------
 // Each test runs a body through run_sub_and_write_json, reads the file back,
 // and asserts on the raw JSON text. Paths resolve against the runner's cwd (the

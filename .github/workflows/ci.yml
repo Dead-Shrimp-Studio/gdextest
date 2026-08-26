@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install SCons
+        run: python3 -m pip install scons
+      - name: Download Godot 4.5
+        run: |
+          curl -fsSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.5-stable/Godot_v4.5-stable_linux.x86_64.zip
+          unzip -o godot.zip
+          chmod +x Godot_v4.5-stable_linux.x86_64
+      - name: Run the internal suite
+        run: GODOT="$PWD/Godot_v4.5-stable_linux.x86_64" ./run_tests.sh
+      - name: Run the consumer smoke test (init -> scaffold --apply -> test)
+        run: GODOT="$PWD/Godot_v4.5-stable_linux.x86_64" ./tests/consumer_smoke.sh

@@ -41,7 +41,11 @@ class Config:
     extension_library: str | None = None
     extension_manifest: str | None = None
     fixture_assets: list[str] = field(default_factory=list)
+    scan_timeout_ms: int = 20000
     build_args: list[str] = field(default_factory=list)
+    timeout_ms: int = 30000
+    isolate_timeout_sec: int = 60
+    flaky_retries: int = 3
     ci_provider: str = "github"
 
     @property
@@ -71,6 +75,14 @@ class Config:
         for argument in self.build_args:
             if "=" not in argument or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:=[^\s]+)?", argument):
                 errors.append(f"invalid build arg: {argument!r} (expected key=value)")
+        if self.timeout_ms <= 0:
+            errors.append(f"timeout_ms must be positive, got {self.timeout_ms}")
+        if self.isolate_timeout_sec <= 0:
+            errors.append(f"isolate_timeout_sec must be positive, got {self.isolate_timeout_sec}")
+        if self.flaky_retries < 0:
+            errors.append(f"flaky_retries must be >= 0, got {self.flaky_retries}")
+        if self.scan_timeout_ms <= 0:
+            errors.append(f"scan_timeout_ms must be positive, got {self.scan_timeout_ms}")
         if self.extension_library and not self.extension_manifest:
             errors.append("extension_manifest is required when extension_library is set")
         if self.extension_manifest and not self.extension_library:
@@ -141,6 +153,7 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
     fixture = values.get("fixture", {})
     output = values.get("output", {})
     build = values.get("build", {})
+    test = values.get("test", {})
     consumer = values.get("consumer_extension", {})
 
     # Flat keys remain supported so existing consumers do not need a migration commit.
@@ -167,7 +180,11 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
         extension_library=_first(consumer, "library", default=_first(values, "extension_library")),
         extension_manifest=_first(consumer, "manifest", default=_first(values, "extension_manifest")),
         fixture_assets=list(_first(fixture, "assets", default=_first(values, "fixture_assets", default=[]))),
+        scan_timeout_ms=int(_first(fixture, "scan_timeout_ms", default=_first(values, "scan_timeout_ms", default=20000))),
         build_args=list(_first(build, "args", default=[])),
+        timeout_ms=int(_first(test, "timeout_ms", default=_first(values, "timeout_ms", default=30000))),
+        isolate_timeout_sec=int(_first(test, "isolate_timeout_sec", default=_first(values, "isolate_timeout_sec", default=60))),
+        flaky_retries=int(_first(test, "flaky_retries", default=_first(values, "flaky_retries", default=3))),
         ci_provider=str(_first(values, "ci_provider", default="github")),
     )
     return config
@@ -186,13 +203,77 @@ def discover_sources(config: Config) -> list[Path]:
     return sorted(found)
 
 
+def _discover_godot(config: Config) -> str | None:
+    """Find a `Godot_v*` executable near the project or in common home dirs.
+
+    Searches the project root and its ancestors (e.g. a sibling `godot/`
+    checkout beside the repo) plus $HOME and a few conventional locations.
+    Binaries matching the configured major.minor (e.g. 4.5) are preferred;
+    among the rest, the newest name wins. Returns None when nothing is found.
+    """
+    expected = ".".join(config.godot_version.split(".")[:2])
+    candidates: list[Path] = []
+    directories: list[Path] = []
+    current = config.project_root
+    while True:
+        directories.append(current)
+        if current == current.parent:
+            break
+        current = current.parent
+    home = Path.home()
+    directories += [home, home / "godot", home / "Godot", home / "Downloads",
+                    home / "Documents" / "godot", home / "Documents" / "Godot"]
+    seen: set[Path] = set()
+    for directory in directories:
+        if directory in seen or not directory.is_dir():
+            continue
+        seen.add(directory)
+        for path in directory.glob("Godot_v*"):
+            if path.is_file() and os.access(path, os.X_OK):
+                candidates.append(path)
+    if not candidates:
+        return None
+    matching = [path for path in candidates if expected in path.name] if expected else []
+    pool = matching or candidates
+    return str(max(pool, key=lambda path: path.name))
+
+
 def godot_executable(config: Config, override: str | None = None) -> str:
     candidate = override or config.godot or os.environ.get("GODOT") or "godot"
     resolved = shutil.which(candidate) or (candidate if Path(candidate).is_file() else None)
     if not resolved:
+        resolved = _discover_godot(config)
+    if not resolved:
         raise FileNotFoundError(
-            f"Godot executable not found: {candidate}. Set GODOT or pass --godot=/path/to/godot.")
+            f"Godot executable not found: {candidate}. Set GODOT, pass --godot=/path/to/godot, "
+            "or place a Godot_v* binary in the project, an ancestor, or $HOME.")
     return resolved
+
+
+def godot_cpp_version(project_root: str | Path) -> str | None:
+    """Best-effort major.minor of the consumer's godot-cpp binding (or None).
+
+    Reads the submodule's checked-out branch, falling back to `git describe`
+    tags for detached checkouts. None when godot-cpp is absent or not a repo.
+    """
+    cpp = Path(project_root) / "extern" / "godot-cpp"
+    if not (cpp / "SConstruct").is_file():
+        return None
+    try:
+        branch = subprocess.run(
+            ["git", "-C", str(cpp), "branch", "--show-current"],
+            capture_output=True, text=True, check=False).stdout.strip()
+        if re.fullmatch(r"\d+\.\d+", branch):
+            return branch
+        describe = subprocess.run(
+            ["git", "-C", str(cpp), "describe", "--tags"],
+            capture_output=True, text=True, check=False).stdout.strip()
+        match = re.search(r"(\d+\.\d+)", describe)
+        if match:
+            return match.group(1)
+    except OSError:
+        pass
+    return None
 
 
 def godot_version(executable: str) -> str:
