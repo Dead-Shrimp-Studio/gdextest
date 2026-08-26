@@ -85,20 +85,30 @@ Once the framework submodule and a first suite are present, run the complete flo
 command:
 
 ```bash
-./gdextest test --godot /path/to/Godot --json=results.json
+./gdextest test --json=results.json
 ```
 
 `test` creates `.gdextest.toml` when it is missing, preserves it when it already exists,
 and runs the doctor checks on every invocation before the build. The checks cover the
-configuration, framework SConscript, Godot version, SCons, test source discovery, and any
-configured consumer extension files. A failed check returns `2` before SCons or Godot is
-started. Use `./gdextest init --ci` when you want to generate the config and CI workflow
-explicitly, or `./gdextest doctor` to inspect the environment without running a build.
+configuration, framework SConscript, SConstruct wiring, Godot version, SCons, test source
+discovery, and any configured consumer extension files. A failed check returns `2` before
+SCons or Godot is started. Use `./gdextest init --ci` when you want to generate the config
+and CI workflow explicitly, or `./gdextest doctor` to inspect the environment without
+running a build. Godot is auto-discovered, so no `--godot` is needed.
 
 After the preflight passes, the command builds the test-only library, generates the
-fixture, launches Godot headlessly, and returns `0` for a passing run or `1` for test
-failures. Relative JSON paths are resolved against the consumer repository's working
-directory.
+fixture, warms the fixture cache, launches Godot headlessly, and returns `0` for a passing
+run or `1` for test failures. Relative JSON paths are resolved against the consumer
+repository's working directory.
+
+If your `SConstruct` isn't wired yet (or you need a custom entry point), start with the
+two-command setup path instead (see [Quickstart](#quickstart) in the README):
+
+```bash
+./gdextest init                  # create .gdextest.toml
+./gdextest scaffold --apply      # wire SConstruct (backup first), generate entry + smoke
+./gdextest test
+```
 
 ## 4. Configure the consumer contract
 
@@ -185,10 +195,12 @@ The generated project contains
 the scan-safe `EditorPlugin` wrapper and points at the generated library, so there is no
 copying or symlink step.
 
-`./gdextest scaffold` automates the wiring for an existing repository: with `--apply` it
-patches `SConstruct` (writing `SConstruct.gdextest.bak` first), generates
-`testsupport/entry.cpp` and a smoke suite from your TOML values, and finishes with the
-doctor checks. The end-to-end flow is `gdextest init → gdextest scaffold --apply → gdextest test`.
+If your `SConstruct` isn't wired yet (or you need a custom entry point), `./gdextest
+scaffold` automates the setup: with `--apply` it patches `SConstruct` (writing
+`SConstruct.gdextest.bak` first), generates `testsupport/entry.cpp` and a smoke suite from
+your TOML values, and finishes with the doctor checks. The setup path is `gdextest init →
+gdextest scaffold --apply → gdextest test`; a plain `./gdextest test` covers the already-wired
+case with the same preflight + build + run.
 
 If your build needs `platform`/`target`/`arch` arguments, list them under
 `[gdextest.build] args` — the CLI appends them to every scons invocation, and the SConscript

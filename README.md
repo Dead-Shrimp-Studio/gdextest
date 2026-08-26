@@ -28,22 +28,47 @@ After the framework has been added to your extension repository, write a suite u
 `tests/` and run:
 
 ```bash
-GODOT=/path/to/Godot_v4.5-stable_linux.x86_64 ./gdextest test
+./gdextest test
 ```
 
-On the first run, `gdextest test` creates `.gdextest.toml` if it is missing, runs the
-same environment checks as `gdextest doctor`, builds the test library, generates the
-disposable fixture, and runs Godot headlessly. On subsequent runs it keeps your config,
-re-checks the environment, and repeats the build/run. It never overwrites an existing
-`.gdextest.toml`; edit that file when your layout needs customization.
+No `--godot` is needed — when a `Godot_v*` binary isn't on `PATH`, the CLI looks in the
+project, its ancestor directories, and `$HOME`, preferring the configured major.minor.
 
-No `--godot` needed when a `Godot_v*` binary is on `PATH`, in the project or an ancestor
-dir, or under `$HOME` — the CLI discovers it (preferring the configured major.minor).
+### Two paths to a working consumer
 
-Repositories that need `SConstruct` wiring (and optionally a custom entry point) can get
-them generated: `./gdextest scaffold --apply` patches `SConstruct` (with a `.bak` backup),
-writes `testsupport/entry.cpp` and a smoke suite from your TOML values, and runs the
-doctor checks. The complete flow is `gdextest init → gdextest scaffold --apply → gdextest test`.
+There are two ways to get from a fresh checkout to a green `test`, and `test` itself
+always runs the same preflight + build + run either way:
+
+1. **Plain quickstart (default path) — one command.** For an existing repo whose
+   `SConstruct` already calls the framework SConscript, everything you need is in one run:
+
+   ```bash
+   ./gdextest test
+   ```
+
+   `test` writes `.gdextest.toml` if it's missing (never overwrites one that exists), runs
+   the doctor checks, builds the test library and fixture, warms the fixture cache, and
+   runs Godot headlessly against your suites.
+
+2. **Setup path — for wiring and custom startup.** Use `init` and `scaffold --apply` when
+   the repo starts unwired (or when you need a custom entry point / plugin class):
+
+   ```bash
+   ./gdextest init                 # create .gdextest.toml
+   ./gdextest scaffold --apply     # patch SConstruct (backup first), generate
+                                   # testsupport/entry.cpp + smoke suite, run doctor
+   ./gdextest test
+   ```
+
+   `scaffold --apply` is the only step that *writes* your `SConstruct` (a `.bak` backup is
+   kept) and the only one that generates the entry point from your TOML `plugin_class` /
+   `entry_symbol`. If you run plain `test` first on an unwired or entry-less repo, the
+   doctor step fails fast with a message pointing at this path — it never guesses about
+   your build wiring.
+
+On every run `test` keeps your config, re-checks the environment, and repeats the
+build/run. It never overwrites an existing `.gdextest.toml`; edit that file when your
+layout needs customization.
 
 Prerequisites are `scons`, a C++17 toolchain, and a Godot **4.5** binary (the framework
 pins `extern/godot-cpp` to the `4.5` branch). The CLI also provides explicit
@@ -203,21 +228,32 @@ and include `framework/engine.h` when they need the live Godot engine.
 
 ### 3. Run the quickstart
 
+Once the framework submodule and a first suite are present, run the complete flow with one
+command:
+
 ```bash
-./gdextest test --godot /path/to/Godot --json=results.json
+./gdextest test --json=results.json
 ```
 
-If `.gdextest.toml` does not exist, this command writes the starter configuration. It then
-runs the doctor checks on every invocation — including config validity, framework path,
-Godot version, SCons, and discovered test sources — before starting the build. A failed
-check stops the command with exit code `2`, so setup problems are reported early. An
-existing config is preserved; use `./gdextest init --force` only when you explicitly want
-to regenerate it. Use `./gdextest init --ci` to create the config and a starter workflow
-without running tests.
+`test` creates `.gdextest.toml` when it is missing, preserves it when it already exists,
+and runs the doctor checks on every invocation before the build. The checks cover the
+configuration, framework SConscript, SConstruct wiring, Godot version, SCons, test source
+discovery, and any configured consumer extension files. A failed check returns `2` before SCons or Godot is started. Use `./gdextest doctor` to inspect the environment without
+building.
 
-A successful command builds the test library, generates the disposable fixture, runs
-Godot headlessly, and returns `0` when all selected tests pass or `1` when a test fails.
-Use `--json=results.json` for CI artifacts and `--shard=k/n` to parallelize.
+After the preflight passes, the command builds the test-only library, generates the
+fixture, warms the fixture cache, launches Godot headlessly (Godot is auto-discovered —
+no `--godot` needed), and returns `0` for a passing run or `1` for test failures. `--json`
+resolves against the consumer repository's working directory.
+
+If the `SConstruct` is not yet wired, or you need a custom entry point, kick off with the
+two-command setup instead (see [Quickstart](#quickstart)):
+
+```bash
+./gdextest init                  # create .gdextest.toml
+./gdextest scaffold --apply      # wire SConstruct (backup first), generate entry + smoke
+./gdextest test
+```
 
 ### 4. Customize only when needed
 

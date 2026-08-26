@@ -37,7 +37,7 @@ for the milestone plan and remaining design work.
 | --- | --- |
 | [architecture.md](architecture.md) | How the framework fits together: layers, execution model, design rules, lifecycle of a run |
 | [api-reference.md](api-reference.md) | The complete public API: registration macros, assertions, `TestContext`, async waits, resource tracking, filtering, tags, retries, and runner entry points |
-| [cli.md](cli.md) | Quickstart lifecycle, automatic config initialization, doctor preflight, invocation, flags, exit codes, and output formats |
+| [cli.md](cli.md) | Quickstart lifecycle, automatic config initialization, the two-tier "plain `test` vs `init`/`scaffold`" setup, doctor preflight, invocation, flags, exit codes, and output formats |
 | [consumer-guide.md](consumer-guide.md) | How another extension repo integrates gdextest (adapter, entry, fixture, build, CI) |
 | [testing/notes.md](testing/notes.md) | Verified engine facts: headless quit codes, safe hook points, `user://` hermeticity, timing gotchas |
 
