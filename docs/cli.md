@@ -2,10 +2,12 @@
 
 ## Invocation shape
 
-The consumer-facing command is:
+The CLI is the `gdextest` wrapper script inside the framework submodule; run it from your
+repo root as `./extern/gdextest/gdextest <command>`. (The framework's own repo uses
+`./gdextest`.) The consumer-facing command is:
 
 ```bash
-./gdextest test [--godot /path/to/Godot] [--filter=...] [--json=results.json]
+./extern/gdextest/gdextest test [--godot /path/to/Godot] [--filter=...] [--json=results.json]
 ```
 
 `test` is intentionally safe to run from a freshly cloned consumer repository. If
@@ -31,18 +33,18 @@ godot --headless --editor --path <fixture> -- --gdextest-run [--gdextest-* optio
 
 | Command | Effect |
 | --- | --- |
-| `./gdextest init` | Create the starter `.gdextest.toml` if it does not exist |
-| `./gdextest init --ci` | Create the starter config and GitHub Actions workflow |
-| `./gdextest init --force` | Regenerate the starter config and any requested workflow |
-| `./gdextest doctor` | Run environment checks without building or running tests |
-| `./gdextest scaffold [--apply]` | Wire `SConstruct`, generate entry + smoke suite, run doctor |
-| `./gdextest list` | Build the test library and list selected tests |
-| `./gdextest report <paths…>` | Merge shard result JSON into one JSON/JUnit report |
-| `./gdextest clean` | Remove generated test output |
+| `gdextest init` | Create the starter `.gdextest.toml` if it does not exist |
+| `gdextest init --ci` | Create the starter config and GitHub Actions workflow |
+| `gdextest init --force` | Regenerate the starter config and any requested workflow |
+| `gdextest doctor` | Run environment checks without building or running tests |
+| `gdextest scaffold [--apply]` | Wire `SConstruct`, generate entry + smoke suite, run doctor |
+| `gdextest list` | Build the test library and list selected tests |
+| `gdextest report <paths…>` | Merge shard result JSON into one JSON/JUnit report |
+| `gdextest clean` | Remove generated test output |
 
 `test` combines the useful setup steps: missing config initialization, doctor preflight,
 build, fixture generation, and the headless Godot run. A doctor failure returns `2` and
-prevents the build from starting. It is the **one-command quickstart**: `./gdextest test`
+prevents the build from starting. It is the **one-command quickstart**: `gdextest test`
 is all you run — config is auto-created, Godot is auto-discovered, everything else
 follows. If your `SConstruct` is not wired, `test` builds through a temporary
 `SConstruct.gdextest` (the framework call injected into a copy, `scons -f`, cleaned up
@@ -56,9 +58,9 @@ TOML values, and finishes with the doctor checks. It is the only command that wr
 your `SConstruct`. The setup path is:
 
 ```bash
-./gdextest init                 # create .gdextest.toml (test auto-does this)
-./gdextest scaffold --apply     # wire SConstruct + generate entry/smoke
-./gdextest test
+./extern/gdextest/gdextest init                 # create .gdextest.toml (test auto-does this)
+./extern/gdextest/gdextest scaffold --apply     # wire SConstruct + generate entry/smoke
+./extern/gdextest/gdextest test
 ```
 
 `report shard*.json --json=merged.json [--junit=results.xml]` merges the JSON documents
@@ -94,7 +96,7 @@ still caught by the runner's exit code `2`).
 **Godot discovery:** when `--godot`, `config.godot`, the `GODOT` env var, and `godot` on
 `PATH` all miss, the CLI searches for an executable named `Godot_v*` in the project root,
 its ancestors (e.g. a sibling `godot/` checkout), and `$HOME`/common dirs. Binaries whose
-name matches the configured major.minor are preferred, so `./gdextest test` usually needs
+name matches the configured major.minor are preferred, so `gdextest test` usually needs
 no `--godot` at all.
 
 **Doctor** additionally checks the consumer's `extern/godot-cpp` binding version against the
@@ -201,7 +203,7 @@ Written by `--gdextest-json=<path>`. Schema:
 Run everything, write results for CI:
 
 ```bash
-./gdextest test --godot /path/to/Godot --json=results.json
+./extern/gdextest/gdextest test --godot /path/to/Godot --json=results.json
 ```
 
 The command above performs config initialization and doctor preflight automatically.

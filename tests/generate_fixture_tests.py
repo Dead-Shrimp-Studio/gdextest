@@ -151,6 +151,45 @@ def test_stale_manifests_and_binaries_removed() -> None:
                 "libtest.so").read_bytes() == b"test-library"
 
 
+def test_consumer_manifest_rewritten_for_fixture() -> None:
+    """A consumer's .gdextension is staged with its [libraries] paths pointing
+    at the fixture's copy of the library, so its real manifest works as-is."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "libtest.so"
+        source.write_bytes(b"test-library")
+        consumer = root / "consumer-addon"
+        (consumer / "bin").mkdir(parents=True)
+        consumer_library = consumer / "bin" / "libgcs.linux.debug.x86_64.so"
+        consumer_library.write_bytes(b"consumer-library")
+        consumer_manifest = consumer / "gcs.gdextension"
+        consumer_manifest.write_text(
+            "[configuration]\nentry_symbol = \"gcs_library_init\"\n"
+            "[libraries]\n"
+            'linux.debug.x86_64 = "res://addons/gcs/bin/libgcs.linux.debug.x86_64.so"\n',
+            encoding="utf-8",
+        )
+        project = root / "project"
+        MODULE.generate_fixture(
+            project_root=project,
+            library_path=source,
+            library_basename="libtest.so",
+            manifest_basename="gdextest.gdextension",
+            extension_library=consumer_library,
+            extension_manifest=consumer_manifest,
+        )
+        project_file = (project / "project.godot").read_text()
+        assert "res://addons/consumer/gcs.gdextension" in project_file
+        staged_manifest = (project / "addons" / "consumer" / "gcs.gdextension").read_text()
+        assert "entry_symbol = \"gcs_library_init\"" in staged_manifest
+        assert ("res://addons/consumer/bin/libgcs.linux.debug.x86_64.so"
+                in staged_manifest)
+        assert "res://addons/gcs/bin/" not in staged_manifest
+        staged_library = (project / "addons" / "consumer" / "bin" /
+                          "libgcs.linux.debug.x86_64.so")
+        assert staged_library.read_bytes() == b"consumer-library"
+
+
 def test_invalid_scan_timeout_rejected() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -178,4 +217,5 @@ if __name__ == "__main__":
     test_generated_plugin_uses_configured_scan_timeout()
     test_invalid_scan_timeout_rejected()
     test_stale_manifests_and_binaries_removed()
+    test_consumer_manifest_rewritten_for_fixture()
     print("fixture generator tests: ok")

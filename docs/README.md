@@ -25,9 +25,10 @@ JSON reporting, filtering/sharding/shuffling, usage-error exit code 2, live-engi
 integration tests, **async / multi-frame tests** (`GDEX_TEST_ASYNC` + `co_await
 ctx.await_frames/await_timer_ms`, driven by a `process_frame` pump with per-wait and
 per-test timeouts), flaky retries, tracked object/reference teardown checks, editor and
-runtime fixtures, headless execution, and reusable consumer `SConscript` wiring (this
-repo's `SConstruct` is the reference consumer). `TAG_FLAKY` retries up to 3 times by
-default; `TestContext::track_object()` and `track_ref()` validate teardown state.
+runtime fixtures, headless execution, and a one-command consumer flow: `gdextest test`
+runs without any `SConstruct` wiring (unwired repos build through a temporary injected
+copy, removed afterwards). `TAG_FLAKY` retries up to 3 times by default;
+`TestContext::track_object()` and `track_ref()` validate teardown state.
 See [.plans/gdextension-testing-framework.md](../.plans/gdextension-testing-framework.md)
 for the milestone plan and remaining design work.
 

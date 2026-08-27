@@ -9,6 +9,7 @@ this in the framework removes the need for consumers to copy a fixture template.
 from __future__ import annotations
 
 import argparse
+import configparser
 import os
 import re
 import shutil
@@ -131,6 +132,36 @@ paths={_packed_strings(paths)}
 {plugins}{autoload}'''
 
 
+def _stage_consumer_manifest(manifest: Path, destination: Path,
+                             library_basename: str | None) -> None:
+    """Copy a consumer's .gdextension into the fixture, pointing every
+    [libraries] entry at the fixture's addons/consumer/bin copy of the library.
+
+    The consumer's manifest references its own addon layout
+    (res://addons/<name>/bin/...) which does not exist inside the generated
+    fixture; Godot resolves library paths at load time, so they are rewritten
+    to the staged copy. The [configuration]/[dependencies] sections are kept
+    verbatim. An unparseable manifest is copied as-is and Godot will surface
+    the error.
+    """
+    if library_basename is None:
+        shutil.copy2(manifest, destination)
+        return
+    parser = configparser.ConfigParser()
+    try:
+        with manifest.open(encoding="utf-8") as handle:
+            parser.read_file(handle)
+    except (OSError, configparser.Error):
+        shutil.copy2(manifest, destination)
+        return
+    if parser.has_section("libraries"):
+        for key in parser["libraries"]:
+            parser["libraries"][key] = f'res://addons/consumer/bin/{library_basename}'
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", encoding="utf-8") as handle:
+        parser.write(handle)
+
+
 def generate_fixture(*, project_root: str | os.PathLike[str], library_path: str | os.PathLike[str],
                      library_basename: str, manifest_basename: str,
                      entry_symbol: str = "gdextest_library_init",
@@ -210,9 +241,11 @@ def generate_fixture(*, project_root: str | os.PathLike[str], library_path: str 
         shutil.copy2(extension, extension_destination)
     if extension_manifest:
         manifest = Path(extension_manifest)
-        manifest_destination = root / "addons" / "consumer" / manifest.name
-        manifest_destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(manifest, manifest_destination)
+        _stage_consumer_manifest(
+            manifest,
+            root / "addons" / "consumer" / manifest.name,
+            extension.name if extension_library else None,
+        )
     if project_source_root:
         copy_globbed_assets(Path(project_source_root), root, fixture_assets)
 

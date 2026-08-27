@@ -48,9 +48,10 @@ Three facts the plan assumed are wrong for Godot 4.5; each is small but material
 
 `godot --help` lists no such flag; setting it (before or after `--`) does nothing —
 `OS::get_user_data_dir()` keeps returning the default `~/.local/share/godot/app_userdata/<proj>`.
-**Replacement:** the runner sets `XDG_DATA_HOME=<tmpdir>` in the child environment (verified:
-writes then land under `<tmpdir>/godot/app_userdata/<proj>`). The framework's `TempDirGuard`
-exposes a helper that sets the env var for the process and restores it.
+**Replacement:** the CLI (`gdextest test` / `gdextest list`) wipes `<build>/user-data`
+before every run and sets `XDG_DATA_HOME=<build>/user-data` in the Godot child's
+environment (verified: writes then land under `<dir>/godot/app_userdata/<proj>`), so
+residue from a previous run never leaks into "should not exist at start" assertions.
 
 ### 3.2 Trigger detection must check both arg lists
 
@@ -104,5 +105,8 @@ R1b's exit-code claim still holds — but only when the run is deferred past the
   text, §7.1 user-dir mechanism, §11 CI invocation).
 
 **M0 is complete.** The framework can be authored against the verified API set and the three
-corrected mechanisms. No open runtime questions remain; the next milestone (M1: registry,
-context, asserts, sync runner, `tests=true` flag, `self` suite + two host suites) can begin.
+corrected mechanisms. No open runtime questions remain.
+
+*Historical note: every milestone after M0 has since shipped — registry/asserts, sync and
+async runners, live-engine tests, fixtures, the CLI, and CI integration. The engine facts
+above remain current; see the [README](../../README.md) for the current feature set.*

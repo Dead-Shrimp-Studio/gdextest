@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 
 from gdextest_config import (
     Config,
+    discover_consumer_manifests,
     discover_sources,
     find_project_root,
     godot_cpp_version,
@@ -504,6 +505,13 @@ def _run_doctor(config: Config, godot_override: str | None,
                            bool(extension_library and extension_library.is_file()))
         ok &= _print_check("consumer extension manifest", str(extension_manifest),
                            bool(extension_manifest and extension_manifest.is_file()))
+    else:
+        candidates = discover_consumer_manifests(config)
+        if len(candidates) == 1:
+            relative = candidates[0].relative_to(config.project_root)
+            print(f"[..] consumer extension: none configured — found {relative}; "
+                  f"add `[gdextest.consumer_extension] manifest = \"{relative}\"` "
+                  f"to load your real extension", flush=True)
     return 0 if ok else 2
 
 

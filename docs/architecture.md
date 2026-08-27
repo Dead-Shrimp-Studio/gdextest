@@ -73,15 +73,19 @@ The most important design constraint, repeated in comments throughout the code:
 
 ## Lifecycle of a test run
 
-From a consumer repository, `./gdextest test` performs the CLI preflight before this
-engine lifecycle: it creates the starter config only when `.gdextest.toml` is missing,
-keeps existing configuration intact, and runs the doctor checks on every invocation.
-A failed preflight returns `2` before SCons starts.
+From a consumer repository, `./extern/gdextest/gdextest test` performs the CLI preflight
+before this engine lifecycle: it creates the starter config only when `.gdextest.toml` is
+missing, keeps existing configuration intact, and runs the doctor checks on every
+invocation. A failed preflight returns `2` before SCons starts.
 
-1. **Build.** After preflight, `scons tests=true` compiles the framework core, the entry point, the host
-   adapter, and the host suites into a separately-named shared object
-   (`libgdextest…so`) with `GDEXTEST_ENABLED` defined. Release builds carry neither the
-   define nor the file.
+1. **Build.** After preflight, the CLI runs scons (`tests=true`, plus `[gdextest.build]
+   args`) to compile the framework core, the entry point, the host adapter, and the host
+   suites into a separately-named shared object (`libgdextest…so`) with
+   `GDEXTEST_ENABLED` defined. Release builds carry neither the define nor the file. When
+   the consumer's `SConstruct` doesn't call the framework SConscript, the CLI builds
+   through a temporary injected copy — `SConstruct.gdextest`, the real file with the
+   framework call appended, invoked via `scons -f` — that is deleted afterwards, so the
+   consumer's build file is never modified.
 2. **Load.** The fixture project's `project.godot` lists the extension via
    `[native_extensions]`; the `.gdextension` manifest points at the test `.so` and its
    `entry_symbol`. Godot loads it at startup and calls `gdextest_library_init`, which

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import configparser
 import os
 import re
 import shutil
@@ -84,9 +85,15 @@ class Config:
         if self.scan_timeout_ms <= 0:
             errors.append(f"scan_timeout_ms must be positive, got {self.scan_timeout_ms}")
         if self.extension_library and not self.extension_manifest:
-            errors.append("extension_manifest is required when extension_library is set")
+            errors.append(
+                "extension_manifest is required when extension_library is set "
+                "(no .gdextension manifest could be derived next to the library; "
+                "set [gdextest.consumer_extension] manifest explicitly)")
         if self.extension_manifest and not self.extension_library:
-            errors.append("extension_library is required when extension_manifest is set")
+            errors.append(
+                "extension_library is required when extension_manifest is set "
+                "(no library declared in the manifest could be resolved on disk; "
+                "set [gdextest.consumer_extension] library explicitly)")
         return errors
 
 
@@ -155,6 +162,23 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
     build = values.get("build", {})
     test = values.get("test", {})
     consumer = values.get("consumer_extension", {})
+    extension_library = _first(consumer, "library", default=_first(values, "extension_library"))
+    extension_manifest = _first(consumer, "manifest", default=_first(values, "extension_manifest"))
+
+    # A consumer extension is one addon described by two files: the
+    # .gdextension manifest and the shared library it points at. Only one of
+    # the two needs to be configured; the other is derived from the file
+    # layout, so `gdextest` works without hunting for both paths.
+    if extension_library and not extension_manifest:
+        library_path = _resolve_path(root, extension_library)
+        derived = discover_extension_manifest(library_path) if library_path else None
+        if derived:
+            extension_manifest = _config_value(derived, root)
+    elif extension_manifest and not extension_library:
+        manifest_path = _resolve_path(root, extension_manifest)
+        derived = discover_extension_library(manifest_path) if manifest_path else None
+        if derived:
+            extension_library = _config_value(derived, root)
 
     # Flat keys remain supported so existing consumers do not need a migration commit.
     config = Config(
@@ -177,8 +201,8 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
         host_mode=str(_first(host, "mode", default="editor")),
         bootstrap=_first(host, "bootstrap", default=_first(values, "bootstrap")),
         native_extensions=list(_first(fixture, "native_extensions", default=_first(values, "native_extensions", default=[]))),
-        extension_library=_first(consumer, "library", default=_first(values, "extension_library")),
-        extension_manifest=_first(consumer, "manifest", default=_first(values, "extension_manifest")),
+        extension_library=extension_library,
+        extension_manifest=extension_manifest,
         fixture_assets=list(_first(fixture, "assets", default=_first(values, "fixture_assets", default=[]))),
         scan_timeout_ms=int(_first(fixture, "scan_timeout_ms", default=_first(values, "scan_timeout_ms", default=20000))),
         build_args=list(_first(build, "args", default=[])),
@@ -306,3 +330,77 @@ def locate_extension_manifest(config: Config) -> Path | None:
         return None
     path = Path(config.extension_manifest)
     return path if path.is_absolute() else config.project_root / path
+
+
+def _resolve_path(root: Path, value: str) -> Path | None:
+    path = Path(value)
+    return path if path.is_absolute() else root / path
+
+
+def _config_value(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def discover_extension_manifest(library: Path) -> Path | None:
+    """Derive the .gdextension manifest that declares `library`.
+
+    godot-cpp addons keep the manifest next to the shared library
+    (addons/<name>/bin/<lib>.so + addons/<name>/bin/<name>.gdextension) or one
+    level up in the addon root (addons/<name>/<name>.gdextension). Walk a few
+    levels up from the library and return the manifest only when the search is
+    unambiguous (zero or several matches -> None).
+    """
+    candidates: set[Path] = set()
+    directory = library.parent
+    for _ in range(3):
+        if directory.is_dir():
+            candidates.update(directory.glob("*.gdextension"))
+        directory = directory.parent
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def discover_extension_library(manifest: Path) -> Path | None:
+    """Derive the shared library a .gdextension manifest declares.
+
+    Reads the manifest's [libraries] table (e.g. `linux.debug.x86_64 =
+    "res://addons/<name>/bin/lib...so"`) and returns the first entry whose file
+    exists on disk, anchoring res:// to the manifest's project root.
+    """
+    parser = configparser.ConfigParser()
+    try:
+        with manifest.open(encoding="utf-8") as handle:
+            parser.read_file(handle)
+    except (OSError, configparser.Error):
+        return None
+    if not parser.has_section("libraries"):
+        return None
+    for _key, value in parser.items("libraries"):
+        path = value.strip().strip('"')
+        if not path.startswith("res://"):
+            continue
+        relative = path[len("res://"):]
+        for base in (manifest.parent.parent.parent, manifest.parent.parent, manifest.parent):
+            candidate = base / relative
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def discover_consumer_manifests(config: Config) -> list[Path]:
+    """Every .gdextension in the consumer project that is not part of the
+    framework's own generated output (used for doctor hints)."""
+    excluded = {
+        config.project_root / config.build_dir,
+        config.fixture_path,
+        config.project_root / ".godot",
+        config.project_root / "extern",
+    }
+    results = []
+    for manifest in config.project_root.rglob("*.gdextension"):
+        if any(excluded_dir in manifest.parents for excluded_dir in excluded):
+            continue
+        results.append(manifest)
+    return sorted(results)

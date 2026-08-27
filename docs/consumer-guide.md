@@ -22,13 +22,17 @@ your repo/
 
 ```bash
 git submodule add <this-repo-url> extern/gdextest
-git submodule update --init --recursive   # also pulls extern/gdextest/extern/godot-cpp
+git submodule update --init
 ```
 
-Your build already vendors godot-cpp (every GDExtension does); the framework expects to
-compile against a 4.5 binding set — it uses `EditorPlugin`, `SceneTree::quit`,
-`OS::get_cmdline_args/get_cmdline_user_args`, and the 4.5 `GDExtensionBinding::InitObject`
-API.
+The CLI is the `gdextest` wrapper script inside the submodule — run it from your repo root
+as `./extern/gdextest/gdextest <command>`. All commands in this guide use that path.
+
+Your build already vendors godot-cpp (every GDExtension does); the framework reuses your
+`extern/godot-cpp` and expects a 4.5 binding set — it uses `EditorPlugin`,
+`SceneTree::quit`, `OS::get_cmdline_args/get_cmdline_user_args`, and the 4.5
+`GDExtensionBinding::InitObject` API. (The submodule's nested godot-cpp is only used by
+the framework's own self-tests, so a plain `--init` is enough.)
 
 ## 2. Include layout
 
@@ -127,15 +131,15 @@ Once the framework submodule and a first suite are present, run the complete flo
 command:
 
 ```bash
-./gdextest test --json=results.json
+./extern/gdextest/gdextest test --json=results.json
 ```
 
 `test` creates `.gdextest.toml` when it is missing, preserves it when it already exists,
 and runs the doctor checks on every invocation before the build. The checks cover the
 configuration, framework SConscript, Godot version, SCons, test source discovery, and any
 configured consumer extension files. A failed check returns `2` before SCons or Godot is
-started. Use `./gdextest init --ci` when you want to generate the config and CI workflow
-explicitly, or `./gdextest doctor` to inspect the environment without running a build.
+started. Use `gdextest init --ci` when you want to generate the config and CI workflow
+explicitly, or `gdextest doctor` to inspect the environment without running a build.
 Godot is auto-discovered, so no `--godot` is needed.
 
 After the preflight passes, the command builds the test-only library, generates the
@@ -143,9 +147,12 @@ fixture, warms the fixture cache, launches Godot headlessly, and returns `0` for
 run or `1` for test failures. Relative JSON paths are resolved against the consumer
 repository's working directory.
 
-For a custom entry point / plugin class, run `./gdextest scaffold --apply` first — it
-generates `testsupport/entry.cpp` from your TOML values; everything else is covered by
-`./gdextest test`.
+**No `SConstruct` wiring is required.** If your build file doesn't call the framework
+SConscript, `test` builds through a temporary injected copy (`SConstruct.gdextest`,
+removed afterwards) — your build file is never modified. `gdextest scaffold --apply` makes
+that wiring permanent (backing up `SConstruct` first) and generates `testsupport/entry.cpp`
+from your TOML values — only needed for a custom entry point / plugin class; everything
+else is covered by `gdextest test`.
 
 ## 5. Configure the consumer contract
 
@@ -194,7 +201,7 @@ host (raise it for large repos / loaded CI).
 
 The `test` preflight validates the configuration, framework path, Godot version, SCons,
 discovered test sources, and any configured consumer extension files on every run. Run
-`./gdextest doctor --godot /path/to/Godot` directly when you want these diagnostics without
+`gdextest doctor --godot /path/to/Godot` directly when you want these diagnostics without
 a build. `gdextest test` and `gdextest list` use the same configuration, so source discovery
 and fixture settings cannot silently diverge.
 
@@ -207,6 +214,32 @@ by the build.
 `host.mode = "editor"` generates the scan-safe `EditorPlugin` fixture and runs Godot with
 `--headless --editor`. `host.mode = "runtime"` generates an autoload fixture and runs plain
 `--headless`, which is appropriate for runtime-only extensions.
+
+### Load your real extension alongside the tests
+
+By default the code under test is whatever compiles into the test library (your
+`[gdextest.tests]` sources). If a suite needs the *actual extension* loaded in the fixture
+— registered classes, editor plugins, or engine behavior only the real `.so` exhibits —
+point at it with `consumer_extension`:
+
+```toml
+[gdextest.consumer_extension]
+library = "addons/my_extension/bin/libmy_extension.linux.editor.x86_64.so"
+```
+
+Only one of the two files needs to be configured; the other is derived automatically:
+
+- **`library` set, `manifest` omitted** — the framework walks up from the library and uses
+the unique `.gdextension` it finds (covers `addons/<name>/bin/` and `addons/<name>/`
+layouts).
+- **`manifest` set, `library` omitted** — the manifest's `[libraries]` table is read and
+the first entry that resolves on disk is used.
+
+If the search is ambiguous (several `.gdextension` files near the library), set both keys
+explicitly. When nothing is configured but your project contains exactly one
+`.gdextension`, `gdextest doctor` prints the exact TOML line to add. The fixture stages the
+extension under `addons/consumer/` and rewrites the manifest's `[libraries]` paths to
+point at that copy, so a real addon manifest works as-is.
 
 ## 6. Customize startup only when needed
 
@@ -278,7 +311,7 @@ void maybe_run(godot::Node *tree_node) {
 
 ## 8. Add a custom entry point (optional)
 
-Run `./gdextest scaffold --apply` to generate `testsupport/entry.cpp` from a template,
+Run `gdextest scaffold --apply` to generate `testsupport/entry.cpp` from a template,
 using the `plugin_class` and `entry_symbol` from your TOML — no manual copy-and-rename.
 (`testsupport/` sits outside the default `tests/**/*.cpp` suite glob so the entry compiles
 exactly once.)
@@ -369,7 +402,7 @@ func _exit_tree() -> void:
 ## 10. Run in CI
 
 ```bash
-./gdextest test --json=results.json --junit=results.xml
+./extern/gdextest/gdextest test --json=results.json --junit=results.xml
 ```
 
 Exit code `0` = green, `1` = red — map it straight to your pipeline. `--junit` converts the
@@ -378,7 +411,7 @@ annotations. For parallel CI use `--gdextest-shard=k/n` (stable assignment, disj
 shards) per job, then merge the shard documents:
 
 ```bash
-./gdextest report 'shard*.json' --json=merged.json --junit=merged.xml
+./extern/gdextest/gdextest report 'shard*.json' --json=merged.json --junit=merged.xml
 ```
 
 `report` exits `1` when any merged test failed or crashed. `user://` is kept hermetic by the
@@ -394,8 +427,10 @@ CLI itself (it wipes `build/gdextest/user-data` before every run). See
   keep the `is_scanning()` deferral in `plugin.gd`.
 - **`Script inherits from native type … can't be assigned to EditorPlugin`:** the plugin
   script must extend `EditorPlugin` directly, not your native plugin class.
-- **Link errors with `-fno-exceptions`:** add `-fexceptions` to the test target's
-  `CXXFLAGS`.
+- **Link errors with `-fno-exceptions`:** the reusable `SConscript` adds `-fexceptions`
+  to the test target automatically, so this only applies if you compile the framework
+  sources yourself (bypassing the SConscript) — then add `-fexceptions` to the test
+  target's `CXXFLAGS`.
 - **Godot errors on a library/manifest name you no longer use** (e.g. an old
   `[gdextest.output] name`): the fixture was reused and stale `.gdextension` / `.so`
   files lingered — the editor scans every `.gdextension` it finds. Run `gdextest clean`

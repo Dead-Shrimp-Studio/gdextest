@@ -279,6 +279,70 @@ def test_run_environment_wipes_previous_user_data() -> None:
         assert environment["XDG_DATA_HOME"] == str(user_data)
 
 
+def test_extension_manifest_derived_from_library() -> None:
+    """Setting only the library path derives the .gdextension manifest."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        addon = root / "addons" / "gcs"
+        (addon / "bin").mkdir(parents=True)
+        (addon / "bin" / "libgcs.linux.editor.x86_64.so").write_bytes(b"lib")
+        (addon / "gcs.gdextension").write_text(
+            '[configuration]\nentry_symbol = "gcs_library_init"\n', encoding="utf-8")
+        (root / ".gdextest.toml").write_text(
+            """[gdextest]\ngodot_version = \"4.5\"\n"""
+            "[gdextest.consumer_extension]\n"
+            'library = "addons/gcs/bin/libgcs.linux.editor.x86_64.so"\n',
+            encoding="utf-8",
+        )
+        config = config_module.load_config(root)
+        assert config.extension_manifest == "addons/gcs/gcs.gdextension"
+        assert config.validate() == []
+
+
+def test_extension_library_derived_from_manifest() -> None:
+    """Setting only the manifest derives the library from its [libraries] table."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        addon = root / "addons" / "gcs"
+        (addon / "bin").mkdir(parents=True)
+        (addon / "bin" / "libgcs.linux.debug.x86_64.so").write_bytes(b"lib")
+        (addon / "gcs.gdextension").write_text(
+            "[configuration]\nentry_symbol = \"gcs_library_init\"\n"
+            "[libraries]\n"
+            'linux.debug.x86_64 = "res://addons/gcs/bin/libgcs.linux.debug.x86_64.so"\n',
+            encoding="utf-8",
+        )
+        (root / ".gdextest.toml").write_text(
+            """[gdextest]\ngodot_version = \"4.5\"\n"""
+            "[gdextest.consumer_extension]\n"
+            'manifest = "addons/gcs/gcs.gdextension"\n',
+            encoding="utf-8",
+        )
+        config = config_module.load_config(root)
+        assert config.extension_library == "addons/gcs/bin/libgcs.linux.debug.x86_64.so"
+        assert config.validate() == []
+
+
+def test_extension_pair_still_validates_when_derivation_ambiguous() -> None:
+    """Multiple manifests near the library fail validation with a clear error."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        addon = root / "addons" / "gcs"
+        (addon / "bin").mkdir(parents=True)
+        (addon / "bin" / "libgcs.so").write_bytes(b"lib")
+        (addon / "gcs.gdextension").write_text("", encoding="utf-8")
+        (addon / "bin" / "other.gdextension").write_text("", encoding="utf-8")
+        (root / ".gdextest.toml").write_text(
+            """[gdextest]\ngodot_version = \"4.5\"\n"""
+            "[gdextest.consumer_extension]\n"
+            'library = "addons/gcs/bin/libgcs.so"\n',
+            encoding="utf-8",
+        )
+        config = config_module.load_config(root)
+        errors = config.validate()
+        assert any("extension_manifest is required" in error for error in errors)
+
+
 def test_doctor_flags_unwired_sconstruct() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = _consumer_root(directory, sconstruct="env = Environment()\n")
@@ -625,4 +689,7 @@ if __name__ == "__main__":
     test_doctor_godot_cpp_version_checks()
     test_scan_timeout_config_parses()
     test_warm_fixture_runs_only_when_cold()
+    test_extension_manifest_derived_from_library()
+    test_extension_library_derived_from_manifest()
+    test_extension_pair_still_validates_when_derivation_ambiguous()
     print("configuration tests: ok")
