@@ -211,6 +211,14 @@ The framework is a thin layer around your existing GDExtension build — there i
 runner binary to install. Add the framework, write tests, and let `gdextest test` own the
 configuration check, build, fixture generation, headless run, and result handling.
 
+> **One-time wiring required.** Because there is no separate runner binary, the framework
+> is compiled *into* your test build, so your `SConstruct` must call
+> `extern/gdextest/SConscript` exactly once — see
+> [Build integration details](#6-build-integration-details). Until it does, `./gdextest
+> test` stops at the doctor preflight with `[!!] SConstruct wiring: no
+> gdextest/SConscript reference`. This is the only manual build change; the wiring is
+> inert unless `tests=true` is passed, so your normal (release) build stays untouched.
+
 ### 1. Add the framework
 
 Add the framework as a git submodule, mirroring the `extern/godot-cpp` pattern used here:
@@ -283,23 +291,45 @@ remains available for the rare case the default host lifecycle isn't enough.
 
 ### 6. Build integration details
 
-Under the hood, the CLI drives the reusable [`SConscript`](SConscript), which supplies the
-generic entry point and adapter, compiles the framework plus your suites into a test-only
-shared object with `GDEXTEST_ENABLED` defined, and generates the fixture project. If you
-prefer to wire it into your existing `SConstruct` directly, the minimal call is:
+This is the one mandatory wiring step. Under the hood, the CLI drives the reusable
+[`SConscript`](SConscript), which supplies the generic entry point and adapter, compiles
+the framework plus your suites into a test-only shared object with `GDEXTEST_ENABLED`
+defined, and generates the fixture project. Your `SConstruct` must call it — after
+godot-cpp is wired into `env`, since the test build inherits `env`'s include paths and
+`LIBS`:
 
 ```python
 lib = env.SConscript(
     "extern/gdextest/SConscript",
     variant_dir="build/gdextest", duplicate=0,
     exports={"env": env, "gdextest": {
-        "enabled": env.get("tests", False),
         "suites": Glob("tests/*.cpp"),
     }},
 )
 if lib:
     Default(lib)
 ```
+
+Notes:
+
+- **Do not export `"enabled"`.** The SConscript enables itself when the build runs with
+  `tests=true` (the CLI always does) or when your env defines `tests`; without the export,
+  a plain `scons` builds your extension exactly as before. Exporting
+  `"enabled": env.get("tests", False)` instead *silently disables* the framework whenever
+  your env does not define `tests`.
+- `suites` is optional — omit it to let `.gdextest.toml` / the CLI's source discovery
+  drive the list, and adjust the glob to your layout if you pass it.
+- **Disabled builds are a no-op.** Without `tests=true`, the SConscript hits its
+  `enabled` gate and `Return()`s immediately (returning `None`), so `if lib:` is falsy and
+  nothing is added to your build — your normal `scons` run compiles no test sources and
+  generates no fixture.
+- **Root-relative env paths are handled.** If your `SConstruct` sets `CPPPATH` / `LIBPATH`
+  with root-relative strings (`extern/godot-cpp/bin`, `src`, …), the test build rebases
+  them to your project root automatically — no `#` prefix required. `#`-anchored,
+  absolute, and `Dir`/`File` entries are left untouched.
+- If the call is missing, `gdextest test` stops at the doctor preflight with the
+  `SConstruct wiring` failure above — it never guesses about your build. `./gdextest
+  scaffold --apply` performs this wiring for you (a `.bak` backup is written first).
 
 No fixture files, manifest, plugin wrapper, or library symlink need to be copied into the
 repository — they're all generated.

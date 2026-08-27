@@ -34,13 +34,29 @@ rm -rf \
 
 # Minimal consumer SConstruct: wires godot-cpp (from the framework's nested
 # self-test-only submodule) but NOT gdextest — scaffold --apply adds that.
+#
+# CPPPATH/LIBPATH are deliberately root-relative strings with a name-based
+# godot-cpp LIBS entry — the hand-rolled-consumer pattern. The framework
+# SConscript must rebase these to the project root, or the test build's link
+# fails with `cannot find -lgodot-cpp...` (SCons resolves relative paths
+# against extern/gdextest/ otherwise).
 cat > "$TMP/SConstruct" <<'EOF'
 cpp_root = "#extern/gdextest/extern/godot-cpp"
 env = Environment(tools=["default"])
 env.SConscript(cpp_root + "/SConstruct",
                variant_dir="extern/godot-cpp/.build", duplicate=0,
                exports={"env": env})
-env.Append(CPPPATH=[Dir(cpp_root + "/gen/include"), Dir(cpp_root + "/include")])
+suffix = env.get("suffix", "")
+if not suffix:
+    suffix = (f".{ARGUMENTS.get('platform', 'linux')}."
+              f"{ARGUMENTS.get('target', 'template_debug')}."
+              f"{ARGUMENTS.get('arch', 'x86_64')}")
+env.Append(CPPPATH=[
+    "extern/gdextest/extern/godot-cpp/gen/include",
+    "extern/gdextest/extern/godot-cpp/include",
+])
+env.Append(LIBPATH=["extern/gdextest/extern/godot-cpp/bin"])
+env["LIBS"] = ["godot-cpp" + suffix]
 EOF
 
 cd "$TMP"

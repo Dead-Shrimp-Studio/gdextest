@@ -8,7 +8,7 @@
 #       "extern/gdextest/SConscript",
 #       variant_dir="build/gdextest", duplicate=0,
 #       exports={"env": env, "gdextest": {
-#           "enabled": env.get("tests", False),
+#           # Omit 'enabled': the SConscript toggles from `scons tests=true`.
 #           "suites": Glob("tests/*.cpp"),
 #       }},
 #   )
@@ -151,6 +151,23 @@ test_env.Append(CPPDEFINES=["GDEXTEST_ENABLED", "GDEXTEST_BUILDING"])
 # Public headers live in include/gdextest/, so suites include them as
 # `#include "gdextest/assert.h"` etc. (the classic library layout).
 test_env.Append(CPPPATH=[framework_root.Dir("include")])
+# A consumer's env commonly carries root-relative CPPPATH/LIBPATH strings
+# (e.g. "extern/godot-cpp/bin") written against their top-level SConstruct.
+# Used from this SConscript (extern/gdextest/) SCons would resolve those
+# against extern/gdextest/ instead, silently breaking the test build's
+# includes and links. Rebase them to the consumer's project root so the
+# test build looks in the same places as the consumer's own build.
+_project_root = env.Dir("#").abspath
+
+
+def _anchor_root_path(value):
+    if (isinstance(value, str) and value and not value.startswith("#")
+            and not os.path.isabs(value)):
+        return os.path.join(_project_root, value)
+    return value
+
+for _var in ("CPPPATH", "LIBPATH"):
+    test_env[_var] = [_anchor_root_path(entry) for entry in test_env.get(_var, [])]
 # Keep warnings enabled for gdextest and consumer code, but do not emit the
 # vendored godot-cpp header warnings into every consumer build.
 godot_cpp_includes = [include for include in test_env.get("CPPPATH", [])

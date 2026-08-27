@@ -224,13 +224,17 @@ lib = env.SConscript(
     "extern/gdextest/SConscript",
     variant_dir="build/gdextest", duplicate=0,
     exports={"env": env, "gdextest": {
-        "enabled": env.get("tests", False),
         "suites": Glob("tests/*.cpp"),
     }},
 )
 if lib:
     Default(lib)
 ```
+
+This call is the **one mandatory build wiring** — without it the doctor preflight fails
+with `SConstruct wiring: no gdextest/SConscript reference`. Do not export `"enabled"`
+unless your env defines `tests`: the SConscript enables itself from `scons tests=true`
+(the CLI always passes it), and a plain `scons` leaves the framework off.
 
 This produces the test library and `build/gdextest/project/`. Consumers can invoke the same
 flow through `./gdextest test`, or bootstrap a new repository with `./gdextest init --ci`.
@@ -423,7 +427,6 @@ lib = env.SConscript(
     "extern/gdextest/SConscript",
     variant_dir="build/gdextest", duplicate=0,   # keep objects out of the submodule
     exports={"env": env, "gdextest": {
-        "enabled":  env.get("tests", False),    # or omit -> `scons tests=true`
         "entry":    "testsupport/entry.cpp",    # custom entry (optional)
         "adapter":  "testsupport/adapter.cpp",  # custom adapter (optional)
         "suites":   Glob("tests/*.cpp"),
@@ -434,6 +437,9 @@ lib = env.SConscript(
 if lib:
     Default(lib)
 ```
+
+(`enabled` is deliberately absent: the framework toggles from `scons tests=true` / your
+env's `tests` value, so a plain build stays untouched.)
 
 This produces `bin/libgdextest.linux.template_debug.x86_64.so` (the platform suffix comes
 from `env["suffix"]`, which godot-cpp sets). Paths in `gdextest` resolve against your
@@ -471,3 +477,9 @@ CLI itself (it wipes `build/gdextest/user-data` before every run). See
   script must extend `EditorPlugin` directly, not your native plugin class.
 - **Link errors with `-fno-exceptions`:** add `-fexceptions` to the test target's
   `CXXFLAGS`.
+- **Test build fails to link with `cannot find -lgodot-cpp...`:** your `SConstruct` sets
+  `CPPPATH` / `LIBPATH` with root-relative strings (e.g. `extern/godot-cpp/bin`). The
+  framework SConscript rebases those to your project root automatically, so this is
+  normally a non-issue — but if you compile the framework sources yourself (bypassing
+  the SConscript), anchor the paths with `#` (`#extern/godot-cpp/bin`, `#src`, …) — the
+  godot-cpp convention — so the build resolves them from any directory.
