@@ -343,6 +343,134 @@ def test_extension_pair_still_validates_when_derivation_ambiguous() -> None:
         assert any("extension_manifest is required" in error for error in errors)
 
 
+def test_fixture_removed_after_test_run() -> None:
+    """The fixture is disposable: removed after the run, even on failure."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        fixture = root / "build" / "gdextest" / "project"
+        fixture.mkdir(parents=True)
+        (fixture / "project.godot").write_text("generated", encoding="utf-8")
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None, json=None, junit=None,
+            passthrough=[],)
+        original_doctor = cli._run_doctor
+        original_build = cli._run_build
+        original_executable = cli.godot_executable
+        original_version = cli.godot_version
+        original_command = cli._godot_command
+        original_warm = cli._warm_fixture
+        original_run = cli.subprocess.run
+        try:
+            cli._run_doctor = lambda config, godot, allow_injection=False: 0
+            cli._run_build = lambda config: None
+            cli.godot_executable = lambda config, override: "/usr/bin/godot"
+            cli.godot_version = lambda executable: "4.5"
+            cli._godot_command = lambda config, executable, *user_args: ["godot"]
+            cli._warm_fixture = lambda config, executable: None
+            # Red run: the fixture must still be cleaned up.
+            cli.subprocess.run = lambda *command, **kwargs: type(
+                "Result", (), {"returncode": 1})()
+            assert cli.cmd_test(args) == 1
+        finally:
+            cli._run_doctor = original_doctor
+            cli._run_build = original_build
+            cli.godot_executable = original_executable
+            cli.godot_version = original_version
+            cli._godot_command = original_command
+            cli._warm_fixture = original_warm
+            cli.subprocess.run = original_run
+        assert not fixture.exists(), "fixture must be removed after the run"
+
+
+def test_fixture_removed_after_list() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        fixture = root / "build" / "gdextest" / "project"
+        fixture.mkdir(parents=True)
+        (fixture / "project.godot").write_text("generated", encoding="utf-8")
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            passthrough=[],)
+        original_build = cli._run_build
+        original_executable = cli.godot_executable
+        original_warm = cli._warm_fixture
+        original_run = cli.subprocess.run
+        try:
+            cli._run_build = lambda config: None
+            cli.godot_executable = lambda config, override: "/usr/bin/godot"
+            cli._warm_fixture = lambda config, executable: None
+            cli.subprocess.run = lambda *command, **kwargs: type(
+                "Result", (), {"returncode": 0})()
+            assert cli.cmd_list(args) == 0
+        finally:
+            cli._run_build = original_build
+            cli.godot_executable = original_executable
+            cli._warm_fixture = original_warm
+            cli.subprocess.run = original_run
+        assert not fixture.exists(), "fixture must be removed after list"
+
+
+def test_keep_fixture_retains_on_failure_removes_on_success() -> None:
+    """`--keep-fixture` retains the fixture on a failed run, but still cleans up
+    a green one; the default (no flag) always removes."""
+    for keep, run_code, should_exist in ((True, 1, True),   # failed run, flag -> kept
+                                         (True, 0, False),  # green run, flag -> removed
+                                         (False, 1, False),  # failed run, no flag -> removed
+                                         (False, 0, False)):  # green run, no flag -> removed
+        with tempfile.TemporaryDirectory() as directory:
+            root = _consumer_root(directory)
+            fixture = root / "build" / "gdextest" / "project"
+            fixture.mkdir(parents=True)
+            (fixture / "project.godot").write_text("generated", encoding="utf-8")
+            args = cli.argparse.Namespace(
+                project_root=root, framework_dir=None, godot="/usr/bin/godot",
+                filter=None, shard=None, shuffle=None, json=None, junit=None,
+                passthrough=[], keep_fixture=keep)
+            original_doctor = cli._run_doctor
+            original_build = cli._run_build
+            original_executable = cli.godot_executable
+            original_version = cli.godot_version
+            original_command = cli._godot_command
+            original_warm = cli._warm_fixture
+            original_run = cli.subprocess.run
+            try:
+                cli._run_doctor = lambda config, godot, allow_injection=False: 0
+                cli._run_build = lambda config: None
+                cli.godot_executable = lambda config, override: "/usr/bin/godot"
+                cli.godot_version = lambda executable: "4.5"
+                cli._godot_command = lambda config, executable, *user_args: ["godot"]
+                cli._warm_fixture = lambda config, executable: None
+                cli.subprocess.run = lambda *command, **kwargs: type(
+                    "Result", (), {"returncode": run_code})()
+                assert cli.cmd_test(args) == run_code
+            finally:
+                cli._run_doctor = original_doctor
+                cli._run_build = original_build
+                cli.godot_executable = original_executable
+                cli.godot_version = original_version
+                cli._godot_command = original_command
+                cli._warm_fixture = original_warm
+                cli.subprocess.run = original_run
+            assert fixture.exists() is should_exist, \
+                f"keep={keep} run_code={run_code}: fixture exists={fixture.exists()}"
+
+
+def test_remove_fixture_refuses_project_root() -> None:
+    """A fixture path at or above the project root is never deleted."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / ".gdextest.toml").write_text(
+            """[gdextest]\ngodot_version = \"4.5\"\n[gdextest.fixture]\ndirectory = \".\"\n""",
+            encoding="utf-8",
+        )
+        config = config_module.load_config(root)
+        marker = root / "keep.txt"
+        marker.write_text("do not delete", encoding="utf-8")
+        cli._remove_fixture(config)
+        assert marker.is_file(), "project root must never be removed"
+
+
 def test_doctor_flags_unwired_sconstruct() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = _consumer_root(directory, sconstruct="env = Environment()\n")
@@ -692,4 +820,8 @@ if __name__ == "__main__":
     test_extension_manifest_derived_from_library()
     test_extension_library_derived_from_manifest()
     test_extension_pair_still_validates_when_derivation_ambiguous()
+    test_fixture_removed_after_test_run()
+    test_fixture_removed_after_list()
+    test_keep_fixture_retains_on_failure_removes_on_success()
+    test_remove_fixture_refuses_project_root()
     print("configuration tests: ok")

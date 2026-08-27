@@ -88,6 +88,7 @@ CLI-level convenience flags (not runner options):
 | --- | --- | --- |
 | `gdextest test --junit=<path>` | Also write JUnit XML | Converted from the run's JSON; `--gdextest-junit=<path>` as a pass-through works too |
 | `gdextest report <paths…> --junit=<path>` | Write merged JUnit XML | Same schema as `--junit`, over merged shards |
+| `gdextest test/list --keep-fixture` | Keep the fixture project when the run fails | Removed on a green run as usual; prints the fixture path when kept, so you can inspect or re-run it against Godot |
 
 Unknown `--gdextest-*` options are not rejected by the CLI: `gdextest test` passes them
 through to the runner verbatim, so new runner flags work without a CLI update (typos are
@@ -239,8 +240,11 @@ The repo's `./run_tests.sh` wraps build + wiring + the standard invocation. The 
 run and point `XDG_DATA_HOME` at it, so residue from a previous run never leaks into
 "should not exist at start" assertions.
 
-When the fixture has no `.godot` cache yet (a fresh checkout or after `clean`), `test` and
-`list` run a single no-trigger warmup pass first: Godot 4.5's first headless-editor run on
-a cold project aborts during shutdown (`testing/notes.md` §5 — the import completes before
-the abort, so the cache is valid), and the warmup makes the real run deterministic instead
-of failing a consumer's very first CI run with a backtrace.
+Because the fixture is recreated fresh for every run (it is removed afterwards, like the
+temporary injected `SConstruct`), `test` and `list` always run a single no-trigger warmup
+pass first: Godot 4.5's first headless-editor run on a cold project aborts during shutdown
+(`testing/notes.md` §5 — the import completes before the abort, so the cache is valid),
+and the warmup makes the real run deterministic instead of failing with a backtrace.
+Pass `--keep-fixture` to retain the fixture when a run fails (it is still removed on a
+green run), so you can inspect the generated project or re-run Godot against it while
+debugging.

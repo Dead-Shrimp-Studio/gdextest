@@ -36,7 +36,11 @@ GDEX_TEST(smoke, framework_is_wired) {
 That is the whole integration. `test` writes `.gdextest.toml` if it is missing (never
 overwrites one that exists), runs the doctor preflight (config, Godot, SCons, godot-cpp
 version, test sources), builds the test library and fixture, warms the fixture cache,
-launches Godot headlessly, and exits `0` on a green run, `1` on failures.
+launches Godot headlessly, and exits `0` on a green run, `1` on failures. The fixture
+project is disposable intermediate state — like the temporary injected `SConstruct`, it's
+removed after the run, so the only things left behind are the built test library and your
+JSON/JUnit results wherever you asked for them. Pass `--keep-fixture` to retain the
+fixture when a run fails (still removed on success) for debugging.
 
 **No `SConstruct` wiring required.** If your build file doesn't call the framework
 SConscript, `test` builds through a temporary injected copy (`SConstruct.gdextest`,
@@ -199,7 +203,8 @@ failure/crash, `2` usage error.
   `SceneTree::quit(code)`.
 - The fixture loads the test `.so` in editor mode (`--headless --editor`); the
   `EditorPlugin::_ready()` hook is the verified safe point to quit from. `user://` stays
-  hermetic by pointing `XDG_DATA_HOME` at a per-run temp dir.
+  hermetic by pointing `XDG_DATA_HOME` at a per-run temp dir, and the fixture itself is
+  removed after the run — nothing accumulates in your repo between runs.
 - After the build, the CLI runs an `ldd -r` preflight on the test library, so a suite
   calling code that isn't compiled into the test build fails fast with a pointer to the
   fix instead of a Godot load-time crash.

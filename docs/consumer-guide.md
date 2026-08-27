@@ -15,7 +15,7 @@ your repo/
   extern/gdextest/          # this framework (git submodule)
   src/…                     # your extension sources (untouched by the framework)
   tests/                    # your GDEX_TEST suites
-  build/gdextest/project/    # generated fixture (disposable)
+  build/gdextest/project/    # ephemeral fixture (generated per run, removed after)
 ```
 
 ## 1. Pull in the framework
@@ -145,7 +145,11 @@ Godot is auto-discovered, so no `--godot` is needed.
 After the preflight passes, the command builds the test-only library, generates the
 fixture, warms the fixture cache, launches Godot headlessly, and returns `0` for a passing
 run or `1` for test failures. Relative JSON paths are resolved against the consumer
-repository's working directory.
+repository's working directory. The fixture is disposable intermediate state — it is
+removed after the run (like the temporary injected `SConstruct`), so the only things left
+behind are the built test library and your results files. Pass `--keep-fixture` to retain
+the fixture when a run fails (still removed on success), e.g. to inspect or re-run the
+generated project while debugging.
 
 **No `SConstruct` wiring is required.** If your build file doesn't call the framework
 SConscript, `test` builds through a temporary injected copy (`SConstruct.gdextest`,
@@ -432,10 +436,10 @@ CLI itself (it wipes `build/gdextest/user-data` before every run). See
   sources yourself (bypassing the SConscript) — then add `-fexceptions` to the test
   target's `CXXFLAGS`.
 - **Godot errors on a library/manifest name you no longer use** (e.g. an old
-  `[gdextest.output] name`): the fixture was reused and stale `.gdextension` / `.so`
-  files lingered — the editor scans every `.gdextension` it finds. Run `gdextest clean`
-  to regenerate the fixture from scratch (regeneration now also removes stale files
-  itself).
+  `[gdextest.output] name`): the fixture is now recreated fresh for every run and removed
+afterwards, so stale `.gdextension` / `.so` files from an older config can no longer
+linger (regeneration also removes stale files defensively). Run `gdextest clean` to clear
+the remaining build output.
 - **Test build fails to link with `cannot find -lgodot-cpp...`:** your `SConstruct` sets
   `CPPPATH` / `LIBPATH` with root-relative strings (e.g. `extern/godot-cpp/bin`). The
   framework SConscript rebases those to your project root automatically, so this is

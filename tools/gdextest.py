@@ -627,14 +627,45 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 1 if merged["totals"]["fail"] or merged["totals"]["crashed"] else 0
 
 
+def _remove_fixture(config: Config) -> None:
+    """Delete the disposable fixture project after a run.
+
+    The fixture is intermediate state — a Godot project generated from the test
+    library and manifest for one headless run — so it is removed once the run
+    finishes, mirroring the temporary injected SConstruct. `gdextest clean`
+    still clears leftovers (e.g. after a crash) along with the rest of the
+    build output.
+    """
+    fixture = config.fixture_path
+    resolved = fixture.resolve()
+    root = config.project_root.resolve()
+    # The fixture directory is configurable; never remove the project root or
+    # anything above it, no matter what [gdextest.fixture] says.
+    if resolved == root or resolved in root.parents:
+        print("gdextest: warning: refusing to remove fixture path at or above the "
+              "project root", file=sys.stderr)
+        return
+    if fixture.is_dir():
+        shutil.rmtree(fixture, ignore_errors=True)
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     config = load_config(args.project_root, args.framework_dir)
     _run_build(config)
-    executable = godot_executable(config, args.godot)
-    _warm_fixture(config, executable)
-    user_args = [*getattr(args, "passthrough", []), "--gdextest-list"]
-    command = _godot_command(config, executable, *user_args)
-    return subprocess.run(command, cwd=config.project_root, env=_run_environment(config)).returncode
+    code = None
+    try:
+        executable = godot_executable(config, args.godot)
+        _warm_fixture(config, executable)
+        user_args = [*getattr(args, "passthrough", []), "--gdextest-list"]
+        command = _godot_command(config, executable, *user_args)
+        code = subprocess.run(command, cwd=config.project_root,
+                              env=_run_environment(config)).returncode
+        return code
+    finally:
+        if getattr(args, "keep_fixture", False) and code != 0:
+            print(f"gdextest: fixture kept for debugging at {config.fixture_path}")
+        else:
+            _remove_fixture(config)
 
 
 def cmd_test(args: argparse.Namespace) -> int:
@@ -646,57 +677,67 @@ def cmd_test(args: argparse.Namespace) -> int:
     doctor_result = _run_doctor(config, args.godot, allow_injection=True)
     if doctor_result:
         return doctor_result
-    _run_build(config)
-    executable = godot_executable(config, args.godot)
-    expected = ".".join(config.godot_version.split(".")[:2])
-    actual = godot_version(executable)
-    if expected and not actual.startswith(expected):
-        raise RuntimeError(f"Godot {actual} found, but gdextest requires {config.godot_version}")
-    # Unknown --gdextest-* flags pass through verbatim; the runner's exit code 2
-    # still guards typos. CLI-generated flags are appended after, so they win.
-    user_args: list[str] = list(getattr(args, "passthrough", []))
-    if args.filter:
-        user_args.append(f"--gdextest-filter={args.filter}")
-    if args.shard:
-        user_args.append(f"--gdextest-shard={args.shard}")
-    if args.shuffle is not None:
-        user_args.append("--gdextest-shuffle" if args.shuffle == "" else
-                         f"--gdextest-shuffle={args.shuffle}")
-    # Runtime budgets from [gdextest.test]; always forwarded so the runner honors
-    # TOML values without a framework rebuild.
-    user_args.append(f"--gdextest-timeout-ms={config.timeout_ms}")
-    user_args.append(f"--gdextest-isolate-timeout-sec={config.isolate_timeout_sec}")
-    user_args.append(f"--gdextest-flaky-retries={config.flaky_retries}")
+    keep_fixture = getattr(args, "keep_fixture", False)
+    code = None
+    try:
+        _run_build(config)
+        executable = godot_executable(config, args.godot)
+        expected = ".".join(config.godot_version.split(".")[:2])
+        actual = godot_version(executable)
+        if expected and not actual.startswith(expected):
+            raise RuntimeError(f"Godot {actual} found, but gdextest requires {config.godot_version}")
+        # Unknown --gdextest-* flags pass through verbatim; the runner's exit code 2
+        # still guards typos. CLI-generated flags are appended after, so they win.
+        user_args: list[str] = list(getattr(args, "passthrough", []))
+        if args.filter:
+            user_args.append(f"--gdextest-filter={args.filter}")
+        if args.shard:
+            user_args.append(f"--gdextest-shard={args.shard}")
+        if args.shuffle is not None:
+            user_args.append("--gdextest-shuffle" if args.shuffle == "" else
+                             f"--gdextest-shuffle={args.shuffle}")
+        # Runtime budgets from [gdextest.test]; always forwarded so the runner honors
+        # TOML values without a framework rebuild.
+        user_args.append(f"--gdextest-timeout-ms={config.timeout_ms}")
+        user_args.append(f"--gdextest-isolate-timeout-sec={config.isolate_timeout_sec}")
+        user_args.append(f"--gdextest-flaky-retries={config.flaky_retries}")
 
-    junit_path = getattr(args, "junit", None)
-    passthrough_junit = _extract_junit_passthrough(user_args)
-    if passthrough_junit and not junit_path:
-        junit_path = passthrough_junit
-    json_path = None
-    if args.json:
-        # Godot chdirs to the fixture dir (--path), so a relative path would resolve
-        # against the fixture, not the user's cwd. Resolve it up front.
-        json_path = os.path.abspath(args.json)
-        user_args.append(f"--gdextest-json={json_path}")
-    elif junit_path:
-        # JUnit is derived from the runner's JSON document; keep it in a temp file.
-        json_path = os.path.join(tempfile.gettempdir(), f"gdextest-results-{os.getpid()}.json")
-        user_args.append(f"--gdextest-json={json_path}")
-    _warm_fixture(config, executable)
-    code = subprocess.run(_godot_command(config, executable, *user_args),
-                          cwd=config.project_root, env=_run_environment(config)).returncode
-    if junit_path and json_path and os.path.isfile(json_path):
-        try:
-            _json_to_junit(json_path, os.path.abspath(junit_path))
-            print(f"gdextest: wrote {os.path.abspath(junit_path)}")
-        except (OSError, ValueError) as error:
-            print(f"gdextest: warning: could not write JUnit output: {error}", file=sys.stderr)
-    if json_path and not args.json:
-        try:
-            os.unlink(json_path)
-        except OSError:
-            pass
-    return code
+        junit_path = getattr(args, "junit", None)
+        passthrough_junit = _extract_junit_passthrough(user_args)
+        if passthrough_junit and not junit_path:
+            junit_path = passthrough_junit
+        json_path = None
+        if args.json:
+            # Godot chdirs to the fixture dir (--path), so a relative path would resolve
+            # against the fixture, not the user's cwd. Resolve it up front.
+            json_path = os.path.abspath(args.json)
+            user_args.append(f"--gdextest-json={json_path}")
+        elif junit_path:
+            # JUnit is derived from the runner's JSON document; keep it in a temp file.
+            json_path = os.path.join(tempfile.gettempdir(), f"gdextest-results-{os.getpid()}.json")
+            user_args.append(f"--gdextest-json={json_path}")
+        _warm_fixture(config, executable)
+        code = subprocess.run(_godot_command(config, executable, *user_args),
+                              cwd=config.project_root, env=_run_environment(config)).returncode
+        if junit_path and json_path and os.path.isfile(json_path):
+            try:
+                _json_to_junit(json_path, os.path.abspath(junit_path))
+                print(f"gdextest: wrote {os.path.abspath(junit_path)}")
+            except (OSError, ValueError) as error:
+                print(f"gdextest: warning: could not write JUnit output: {error}", file=sys.stderr)
+        if json_path and not args.json:
+            try:
+                os.unlink(json_path)
+            except OSError:
+                pass
+        return code
+    finally:
+        if keep_fixture and code != 0:
+            # A failed run (or an exception before `code` was set) leaves the
+            # fixture in place so it can be inspected or re-run against Godot.
+            print(f"gdextest: fixture kept for debugging at {config.fixture_path}")
+        else:
+            _remove_fixture(config)
 
 
 def cmd_clean(args: argparse.Namespace) -> int:
@@ -740,6 +781,8 @@ def main(argv: list[str] | None = None) -> int:
     test.add_argument("--shuffle", nargs="?", const="", default=None)
     test.add_argument("--json")
     test.add_argument("--junit", help="also write JUnit XML (converted from the run's JSON)")
+    test.add_argument("--keep-fixture", action="store_true",
+                      help="keep the fixture project when the run fails (removed on success)")
     test.set_defaults(function=cmd_test)
 
     report = subparsers.add_parser("report", help="merge shard result JSON into one report")
@@ -750,6 +793,8 @@ def main(argv: list[str] | None = None) -> int:
 
     listing = subparsers.add_parser("list", help="build and list tests")
     listing.add_argument("--godot")
+    listing.add_argument("--keep-fixture", action="store_true",
+                        help="keep the fixture project when the run fails (removed on success)")
     listing.set_defaults(function=cmd_list)
 
     clean = subparsers.add_parser("clean", help="remove generated test output")
