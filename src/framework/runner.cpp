@@ -3,7 +3,7 @@
 // bodies inline, async bodies (Milestone C) through a process_frame pump that
 // resumes suspended coroutines — then writes human + JSON output and exits via
 // SceneTree::quit(code) (0 = pass, 1 = failure, 2 = usage error).
-#include "runner.h"
+#include "gdextest/runner.h"
 
 #include <coroutine>
 #include <cstdio>
@@ -13,9 +13,9 @@
 #include <utility>
 #include <vector>
 
-#include "context.h"
-#include "host.h"
-#include "registry.h"
+#include "gdextest/context.h"
+#include "gdextest/host.h"
+#include "gdextest/registry.h"
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/object.hpp>

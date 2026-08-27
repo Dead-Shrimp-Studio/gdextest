@@ -15,10 +15,10 @@
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/time.hpp>
 
-#include "framework/assert.h"
-#include "framework/async.h"
-#include "framework/engine.h"
-#include "framework/registry.h"
+#include "gdextest/assert.h"
+#include "gdextest/async.h"
+#include "gdextest/engine.h"
+#include "gdextest/registry.h"
 
 // The engine's process frame counter advances across an awaited frame pause:
 // await_frames(2) must observe at least two new engine frames before resuming.

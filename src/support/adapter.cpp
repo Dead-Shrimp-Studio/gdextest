@@ -1,7 +1,7 @@
 // Per-extension adapter for the generated gdextest host.
 #ifdef GDEXTEST_ENABLED
 
-#include "framework/adapter.h"
+#include "gdextest/adapter.h"
 
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>

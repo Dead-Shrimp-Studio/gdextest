@@ -148,7 +148,9 @@ sources = (
 # --- test library ------------------------------------------------------------
 test_env = env.Clone()
 test_env.Append(CPPDEFINES=["GDEXTEST_ENABLED", "GDEXTEST_BUILDING"])
-test_env.Append(CPPPATH=[framework_root.Dir("src")])
+# Public headers live in include/gdextest/, so suites include them as
+# `#include "gdextest/assert.h"` etc. (the classic library layout).
+test_env.Append(CPPPATH=[framework_root.Dir("include")])
 # Keep warnings enabled for gdextest and consumer code, but do not emit the
 # vendored godot-cpp header warnings into every consumer build.
 godot_cpp_includes = [include for include in test_env.get("CPPPATH", [])

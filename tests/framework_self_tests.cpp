@@ -13,10 +13,10 @@ namespace {
 int g_flaky_attempts = 0;
 }
 
-#include "framework/assert.h"
-#include "framework/registry.h"
-#include "framework/host.h"
-#include "framework/runner.h"
+#include "gdextest/assert.h"
+#include "gdextest/registry.h"
+#include "gdextest/host.h"
+#include "gdextest/runner.h"
 
 namespace {
 // Read a file written by run_sub_and_write_json (paths resolve against the

@@ -5,8 +5,8 @@
 
 #include <string>
 
-#include "framework/assert.h"
-#include "framework/registry.h"
+#include "gdextest/assert.h"
+#include "gdextest/registry.h"
 
 namespace {  // a trivial pure function the suite exercises
 std::string trim(const std::string &s) {

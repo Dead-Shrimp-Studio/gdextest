@@ -1,12 +1,12 @@
 # API reference
 
-The complete public surface of the framework. Headers live in `src/framework/`; suite
-authors include `framework/assert.h` and `framework/registry.h` (paths depend on your
-include setup — this repo adds `src/` to `CPPPATH`).
+The complete public surface of the framework. Headers live in `include/gdextest/`; suite
+authors include `gdextest/assert.h` and `gdextest/registry.h` (paths depend on your
+include setup — this repo adds `include/` to `CPPPATH`).
 
 ## Test registration
 
-Header: `framework/registry.h`.
+Header: `gdextest/registry.h`.
 
 ### `GDEX_TEST(suite, name)` / `GDEX_TEST_T(suite, name, tags)`
 
@@ -112,7 +112,7 @@ Selection semantics (see `registry.cpp`):
 
 ## Async tests
 
-Header: `framework/async.h` (pure C++ core — no Godot types; the engine-boundary pump
+Header: `gdextest/async.h` (pure C++ core — no Godot types; the engine-boundary pump
 lives in `runner.cpp`). Async tests let a body suspend across engine frames and resume
 later, driven by the runner's `process_frame` pump. Suites register them with
 `GDEX_TEST_ASYNC` / `GDEX_TEST_ASYNC_T` and `co_await` a wait on the test's context:
@@ -153,7 +153,7 @@ from `--gdextest-timeout-ms`, `--gdextest-isolate-timeout-sec`, and
 `--gdextest-flaky-retries`, which the CLI populates from `[gdextest.test]` in
 `.gdextest.toml` (`timeout_ms`, `isolate_timeout_sec`, `flaky_retries`; defaults 30000,
 60, 3). `TAG_FLAKY` tests use `flaky_retries` additional attempts; the runner's
-`kDefault*` constants in `framework/config.h` remain the fallback defaults.
+`kDefault*` constants in `gdextest/config.h` remain the fallback defaults.
 
 ### Semantics
 
@@ -167,7 +167,7 @@ from `--gdextest-timeout-ms`, `--gdextest-isolate-timeout-sec`, and
 
 ## Assertions
 
-Header: `framework/assert.h`. Every macro records a failure on the in-scope `ctx` and
+Header: `gdextest/assert.h`. Every macro records a failure on the in-scope `ctx` and
 **continues execution** — only `GDEX_ABORT_TEST` aborts the test.
 
 | Macro | Passes when | Failure message includes |
@@ -217,7 +217,7 @@ are only touched at this value-formatting boundary, keeping the core `std::strin
 
 ## TestContext
 
-Header: `framework/context.h`.
+Header: `gdextest/context.h`.
 
 ```cpp
 struct Failure {
@@ -275,12 +275,12 @@ associated diagnostic strings.
 
 The engine handle is an opaque `void*` so the core stays Godot-free. When a run happens
 through the engine trigger, the runner sets it to the live host node; engine-boundary
-accessors in [`framework/engine.h`](../src/framework/engine.h) cast it to a real
+accessors in [`gdextest/engine.h`](../include/gdextest/engine.h) cast it to a real
 `godot::Node`/`godot::SceneTree` (see [Live-engine tests](#live-engine-tests)).
 
 ## Live-engine tests
 
-Header: `framework/engine.h` (engine boundary — the second framework header that pulls in
+Header: `gdextest/engine.h` (engine boundary — the second framework header that pulls in
 godot-cpp, alongside `runner.h`).
 
 ```cpp
@@ -299,7 +299,7 @@ engine: singletons, `ClassDB`, and building real scene-tree structure (`memnew`,
 
 ## Host configuration
 
-Header: `framework/host.h`.
+Header: `gdextest/host.h`.
 
 The default adapter uses explicit function pointers instead of weak symbols, so consumer
 startup and shutdown hooks work consistently across GCC, Clang, and MSVC:
@@ -320,8 +320,8 @@ callbacks run on the Godot main thread: `bootstrap` immediately before the test 
 
 ## Runner entry points
 
-Header: `framework/runner.h`. Only the engine-boundary headers (`runner.h`, `engine.h`)
-pull in godot-cpp.
+Header: `gdextest/runner.h`. Only the engine-boundary headers (`gdextest/runner.h`,
+`gdextest/engine.h`) pull in godot-cpp.
 
 ```cpp
 namespace gdextest {
@@ -368,7 +368,7 @@ async tests selected, `run_all_and_quit` may return before the run completes: th
 
 ## Configuration
 
-Header: `framework/config.h` — the single customization point for hosts.
+Header: `gdextest/config.h` — the single customization point for hosts.
 
 ```cpp
 enum Tag : uint32_t {

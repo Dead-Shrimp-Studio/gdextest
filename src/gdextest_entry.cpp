@@ -2,7 +2,7 @@
 // The plugin's _ready() is the M0-verified safe editor hook (plan §3).
 #ifdef GDEXTEST_ENABLED
 
-#include "framework/adapter.h"
+#include "gdextest/adapter.h"
 
 #include <godot_cpp/classes/editor_plugin.hpp>
 #include <godot_cpp/godot.hpp>

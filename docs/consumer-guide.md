@@ -31,14 +31,57 @@ compile against a 4.5 binding set — it uses `EditorPlugin`, `SceneTree::quit`,
 `OS::get_cmdline_args/get_cmdline_user_args`, and the 4.5 `GDExtensionBinding::InitObject`
 API.
 
-## 2. Write suites
+## 2. Include layout
+
+The framework follows the classic C++ library layout, so the include path stays clean and
+predictable no matter where the submodule lands:
+
+```
+extern/gdextest/
+  include/gdextest/     # public headers — the only files suites #include
+  src/framework/        # implementation (.cpp) — compiled by the SConscript, never included
+  SConscript            # reusable build wiring (appends include/ to CPPPATH)
+```
+
+All public headers live under `include/gdextest/`, so a single `-I extern/gdextest/include`
+entry resolves every framework include as a namespaced `gdextest/...` path — no digging
+into the framework's source tree, no relative `../extern/gdextest/...` includes from your
+suites:
+
+```cpp
+#include "gdextest/assert.h"
+#include "gdextest/registry.h"
+```
+
+The reusable `SConscript` appends `include/` to the test target's `CPPPATH` for you, so
+the [build wiring](#6-build-with-the-generated-host) below is all it takes. Only if you
+compile the framework sources yourself (bypassing the SConscript) do you need to add
+`-I extern/gdextest/include` (or `/I extern\gdextest\include` on MSVC) to your test target.
+
+| Header | Purpose | Included by |
+| --- | --- | --- |
+| `gdextest/assert.h` | `GDEX_EXPECT_*` assertions, `GDEX_FAIL`, `GDEX_ABORT_TEST`, `GDEX_SKIP` | every suite |
+| `gdextest/registry.h` | `GDEX_TEST` / `GDEX_TEST_T` / `GDEX_TEST_ASYNC*` registration, `TestRegistry`, `Filter` | every suite |
+| `gdextest/engine.h` | live-engine accessors `gdextest::engine_tree(ctx)` / `engine_node(ctx)` — pulls in godot-cpp | engine-facing suites (with `TAG_INTEGRATION`) |
+| `gdextest/async.h` | async-test coroutine machinery, `ctx.await_frames` / `ctx.await_timer_ms` | async suites (pulled in by `registry.h`) |
+| `gdextest/context.h` | `TestContext`, `Failure`, teardowns, `track_object` / `track_ref` | advanced suites |
+| `gdextest/config.h` | `Tag` enum, `kDefault*` budgets — the customization point | hosts that tune budgets |
+| `gdextest/host.h` | `gdextest::configure_host({&start, &stop})` | extension init paths (§7) |
+| `gdextest/runner.h` | runner entry points (`run_all_and_quit`, `run_sub_*`) — engine-boundary | self-tests, custom adapters |
+| `gdextest/adapter.h` | `gdextest_adapter::maybe_run(godot::Node*)` contract | custom adapters (§8) |
+
+Suite authors normally only touch `assert.h` and `registry.h`. The implementation files in
+`src/framework/` are compiled into your test library by the SConscript; nothing in
+`include/` is a copy or a symlink, so there is no second source of truth.
+
+## 3. Write suites
 
 Plain C++ files using the macros — see [api-reference.md](api-reference.md) for the full
 surface:
 
 ```cpp
-#include "framework/assert.h"
-#include "framework/registry.h"
+#include "gdextest/assert.h"
+#include "gdextest/registry.h"
 #include "my_extension/math_utils.h"   // your code under test
 
 GDEX_TEST(math_utils, clamp_keeps_value_in_range) {
@@ -50,12 +93,12 @@ GDEX_TEST(math_utils, clamp_keeps_value_in_range) {
 
 Engine-facing tests run inside a real Godot process. Singletons, your registered classes,
 and the live SceneTree are all reachable from a test body that opts in: tag the test
-TAG_INTEGRATION and include framework/engine.h. Then gdextest::engine_tree(ctx) is the live
+TAG_INTEGRATION and include `gdextest/engine.h`. Then gdextest::engine_tree(ctx) is the live
 SceneTree and gdextest::engine_node(ctx) is the host Node. Pure-logic suites (no tag, no
 engine.h) get null from both — the engine is opt-in:
 
 ```cpp
-#include "framework/engine.h"
+#include "gdextest/engine.h"
 
 GDEX_TEST_T(my_extension, class_is_registered, TAG_INTEGRATION) {
     GDEX_EXPECT_NE(godot::OS::get_singleton()->get_processor_count(), 0);
@@ -79,7 +122,7 @@ GDEX_TEST_ASYNC(my_extension, signal_settles_across_frames) {
 Every wait has a timeout (default 30 s per wait, 60 s per test) so a never-resolving
 await fails the test instead of hanging CI. See `api-reference.md` → Async tests.
 
-## 3. Run the quickstart
+## 4. Run the quickstart
 
 Once the framework submodule and a first suite are present, run the complete flow with one
 command:
@@ -110,7 +153,7 @@ two-command setup path instead (see [Quickstart](#quickstart) in the README):
 ./gdextest test
 ```
 
-## 4. Configure the consumer contract
+## 5. Configure the consumer contract
 
 The recommended configuration is structured by responsibility. Existing flat keys remain
 supported for compatibility, but new projects should use this form:
@@ -171,7 +214,7 @@ A value you set in the TOML is never silently ignored by the build.
 `--headless --editor`. `host.mode = "runtime"` generates an autoload fixture and runs plain
 `--headless`, which is appropriate for runtime-only extensions.
 
-## 5. Build with the generated host
+## 6. Build with the generated host
 
 The framework owns the generic GDExtension entry point, adapter, editor plugin wrapper,
 manifest, and fixture project. Consumers only provide their suites:
@@ -207,14 +250,14 @@ If your build needs `platform`/`target`/`arch` arguments, list them under
 reads the same keys from `ARGUMENTS` when computing the library suffix for hosts that do
 not wire godot-cpp's own `env["suffix"]`.
 
-## 6. Customize startup only when needed
+## 7. Customize startup only when needed
 
 If your extension needs services bootstrapped before the tests run, configure the host from
-your extension's initialization code. Include `framework/host.h` and register ordinary
+your extension's initialization code. Include `gdextest/host.h` and register ordinary
 function pointers; no weak symbols or platform-specific linker behavior is required:
 
 ```cpp
-#include "framework/host.h"
+#include "gdextest/host.h"
 
 void start_test_services() { /* initialize consumer services */ }
 void stop_test_services() { /* release consumer services */ }
@@ -230,10 +273,10 @@ no-op, so consumers that need no setup provide nothing. The callback API is port
 GCC, Clang, and MSVC; a custom `adapter` or `entry` remains available only when the default
 host lifecycle itself is insufficient.
 
-## 7. Write a custom adapter (optional)
+## 8. Write a custom adapter (optional)
 
 If the default host is not enough, `adapter.cpp` is the **only file that should know your
-extension's wiring**. The contract lives in [`framework/adapter.h`](../src/framework/adapter.h)
+extension's wiring**. The contract lives in [`gdextest/adapter.h`](../include/gdextest/adapter.h)
 — one declaration (`gdextest_adapter::maybe_run(godot::Node*)`) — so a custom adapter with
 a wrong signature fails at compile time, not link time. Model it on
 [`src/support/adapter.cpp`](../src/support/adapter.cpp) — ~40 lines by design:
@@ -241,7 +284,7 @@ a wrong signature fails at compile time, not link time. Model it on
 ```cpp
 #ifdef GDEXTEST_ENABLED   // test build only
 
-#include "framework/adapter.h"   // declares gdextest_adapter::maybe_run
+#include "gdextest/adapter.h"   // declares gdextest_adapter::maybe_run
 
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
@@ -275,7 +318,7 @@ void maybe_run(godot::Node *tree_node) {
 #endif // GDEXTEST_ENABLED
 ```
 
-## 8. Add a custom entry point (optional)
+## 9. Add a custom entry point (optional)
 
 Run `./gdextest scaffold --apply` to generate `testsupport/entry.cpp` from a template,
 using the `plugin_class` and `entry_symbol` from your TOML — no manual copy-and-rename.
@@ -304,7 +347,7 @@ GDExtensionBool GDE_EXPORT my_library_init(
 The `.gdextension` manifest in your fixture project must set `entry_symbol` to this
 function's name.
 
-## 9. Create a custom fixture project (optional)
+## 10. Create a custom fixture project (optional)
 
 Copy [`testdata/project/`](../testdata/project/) and adapt. Three pieces:
 
@@ -365,7 +408,7 @@ func _exit_tree() -> void:
         test_plugin = null
 ```
 
-## 10. Custom build details
+## 11. Custom build details
 
 For custom entry/adapter or output settings, call the framework's reusable [`SConscript`](../SConscript)
 `SConscript` (the env must already carry godot-cpp's include paths and `LIBS`). It compiles
@@ -398,7 +441,7 @@ project root. Optional extras your env can carry: `sanitize=true` (ASan/UBSan) a
 `coverage=true` flags are applied to `env` before the call and inherited by the test target
 (this repo's `SConstruct` is the working example).
 
-## 11. Run and wire into CI
+## 12. Run and wire into CI
 
 ```bash
 ./gdextest test --json=results.json --junit=results.xml

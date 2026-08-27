@@ -1,4 +1,4 @@
-#include "host.h"
+#include "gdextest/host.h"
 
 namespace gdextest {
 namespace {

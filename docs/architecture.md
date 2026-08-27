@@ -44,12 +44,13 @@ The most important design constraint, repeated in comments throughout the code:
    at library load, so the registry must never touch engine types.
 2. **Only the engine-boundary files touch Godot.** The framework core (`registry.*`,
    `context.h`, `assert.h`) is pure C++. Godot types appear only in two engine-boundary
-   headers: `src/framework/runner.h/.cpp` (the runner) and `src/framework/engine.h` (the
-   accessors that hand a live `SceneTree` to integration test bodies). A body still gets
+   headers: `include/gdextest/runner.h` + `src/framework/runner.cpp` (the runner) and
+   `include/gdextest/engine.h` (the accessors that hand a live `SceneTree` to integration
+   test bodies). A body still gets
    only a `TestContext&`; reaching the engine is opt-in via `engine.h` + a `TAG_INTEGRATION`
    tag.
 3. **The adapter is the host's only file that knows the extension.** The contract is
-   declared in `src/framework/adapter.h` — `gdextest_adapter::maybe_run(godot::Node*)` — so
+   declared in `include/gdextest/adapter.h` — `gdextest_adapter::maybe_run(godot::Node*)` — so
    custom adapters fail at compile time on a signature mismatch, not at link time.
    `src/support/adapter.cpp` is the reference implementation (~40 lines): trigger
    detection, `bootstrap()`, and the call into the runner. The framework ships it as a
@@ -124,7 +125,7 @@ up, and a `quit()` from there is dropped — the editor hangs indefinitely. See
 | Resource tracking via instance IDs/reference counts | Detects leaked Godot objects and retained references during teardown without stale-pointer dereferences |
 | Async tests are C++20 coroutines (`Task` + `co_await`), not threads | Coroutines suspend on the Godot main thread and are resumed by the `process_frame` pump — no locking, no engine calls off the main thread; a plain sync body is unchanged (`GDEX_TEST` stays a function pointer) |
 | One async test in flight at a time, declaration order | Keeps results deterministic and avoids interleaving; the pump advances one await per tick |
-| Framework core ships in `src/framework/`, entry + adapter in `src/`, suites in `tests/` | The core is host-agnostic; entry/adapter are the engine-boundary templates; `tests/` is this repo's own reference usage |
+| Public headers ship in `include/gdextest/`, core implementation in `src/framework/`, entry + adapter in `src/`, suites in `tests/` | The public surface is a clean `gdextest/` include prefix; the core is host-agnostic; entry/adapter are the engine-boundary templates; `tests/` is this repo's own reference usage |
 
 ## Engine facts the framework leans on
 

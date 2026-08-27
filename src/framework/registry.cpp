@@ -1,4 +1,4 @@
-#include "registry.h"
+#include "gdextest/registry.h"
 
 #include <algorithm>
 #include <cstring>

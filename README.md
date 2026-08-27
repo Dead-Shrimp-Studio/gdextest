@@ -82,8 +82,8 @@ body receives a `TestContext&` named `ctx` (injected by the runner), so macros r
 automatically:
 
 ```cpp
-#include "framework/assert.h"
-#include "framework/registry.h"
+#include "gdextest/assert.h"
+#include "gdextest/registry.h"
 
 GDEX_TEST(string_utils, trim_strips_both_ends) {
     GDEX_EXPECT_STR_EQ(trim("  hello  "), "hello");
@@ -110,7 +110,7 @@ failing check:
 | `GDEX_SKIP(msg)` | record the test as skipped for a runtime reason and stop the body |
 
 `GDEX_TEST_T(suite, name, tags)` registers with tags (`TAG_UNIT`, `TAG_INTEGRATION`,
-`TAG_ASYNC`, `TAG_SLOW`, `TAG_FLAKY` — see `src/framework/config.h`). Tests tagged
+`TAG_ASYNC`, `TAG_SLOW`, `TAG_FLAKY` — see `include/gdextest/config.h`). Tests tagged
 `TAG_FLAKY` are retried up to `kDefaultFlakyRetries` (currently 3 retries) until they pass.
 Tag names resolve bare, so write
 `GDEX_TEST_T(engine, spins_up, TAG_INTEGRATION)` exactly as shown. This repo's reference
@@ -148,13 +148,13 @@ resolves is red, never a hang. See `docs/api-reference.md` → Async tests for d
 
 Pure-logic tests never touch the engine and need nothing else. To exercise the live Godot
 engine (singletons, creating/removing scene nodes, your registered classes), tag a test
-`TAG_INTEGRATION` and include `framework/engine.h`. The runner exposes the live `SceneTree`
+`TAG_INTEGRATION` and include `gdextest/engine.h`. The runner exposes the live `SceneTree`
 on the test's context:
 
 ```cpp
-#include "framework/assert.h"
-#include "framework/engine.h"
-#include "framework/registry.h"
+#include "gdextest/assert.h"
+#include "gdextest/engine.h"
+#include "gdextest/registry.h"
 
 GDEX_TEST_T(engine, can_build_scene_graph, TAG_INTEGRATION) {
     godot::SceneTree *tree = gdextest::engine_tree(ctx);   // live engine tree
@@ -220,13 +220,31 @@ git submodule add <this repo> extern/gdextest
 git submodule update --init --recursive   # also pulls extern/gdextest/extern/godot-cpp
 ```
 
-### 2. Write your first suite
+### 2. Include layout
+
+The framework follows the classic C++ library layout, so your suites include public
+headers by name instead of reaching into the submodule:
+
+```
+extern/gdextest/
+  include/gdextest/     # public headers — included as gdextest/...
+  src/framework/        # implementation (.cpp) — compiled by the SConscript, never included
+  SConscript            # reusable build wiring (appends include/ to CPPPATH)
+```
+
+A suite only ever writes `#include "gdextest/assert.h"` (or `registry.h`, `engine.h`, …)
+— the reusable `SConscript` adds `include/` to the test target's `CPPPATH`, so the path
+resolves no matter where the submodule sits. The consumer guide's
+[Include layout section](docs/consumer-guide.md) lists every public header and when to
+include it.
+
+### 3. Write your first suite
 
 Create a C++ file under `tests/` using `GDEX_TEST(...)` and the assertion macros above.
 Pure-logic tests need no additional setup; tag engine-facing tests with `TAG_INTEGRATION`
-and include `framework/engine.h` when they need the live Godot engine.
+and include `gdextest/engine.h` when they need the live Godot engine.
 
-### 3. Run the quickstart
+### 4. Run the quickstart
 
 Once the framework submodule and a first suite are present, run the complete flow with one
 command:
@@ -255,7 +273,7 @@ two-command setup instead (see [Quickstart](#quickstart)):
 ./gdextest test
 ```
 
-### 4. Customize only when needed
+### 5. Customize only when needed
 
 Everything lives in `.gdextest.toml` (test sources, host mode, fixture, output name,
 plugin class, extra scons build args). For extension-specific startup, register ordinary
@@ -263,7 +281,7 @@ function pointers with `gdextest::configure_host({&start, &stop})` from your ini
 path — no weak symbols or platform-specific linker behavior. A custom `entry`/`adapter`
 remains available for the rare case the default host lifecycle isn't enough.
 
-### 5. Build integration details
+### 6. Build integration details
 
 Under the hood, the CLI drives the reusable [`SConscript`](SConscript), which supplies the
 generic entry point and adapter, compiles the framework plus your suites into a test-only
@@ -289,8 +307,9 @@ repository — they're all generated.
 
 ## How it works
 
-- Suites are registered at static-init time in a pure-C++ registry (`src/framework/`); the
-  core has **no Godot types** so it's safe in static initializers.
+- Suites are registered at static-init time in a pure-C++ registry (public headers in
+  `include/gdextest/`, implementation in `src/framework/`); the core has **no Godot types**
+  so it's safe in static initializers.
 - Only the runner (`src/framework/runner.cpp`) touches the engine boundary: it parses the
   `--gdextest-*` flags, runs the selected tests synchronously, writes human + JSON output,
   and exits via `SceneTree::quit(code)`.
@@ -303,7 +322,8 @@ repository — they're all generated.
 
 | Path | Role |
 | --- | --- |
-| `src/framework/` | Pure C++ core: registry, `TestContext`, assertions, tags, runner |
+| `include/gdextest/` | Public headers: registry, `TestContext`, assertions, tags, runner |
+| `src/framework/` | Framework implementation (`registry.cpp`, `runner.cpp`, `host.cpp`) |
 | `src/gdextest_entry.cpp` | GDExtension entry + `EditorPlugin` shell (test build only) |
 | `src/support/adapter.cpp` | Per-extension adapter — the one file that knows your wiring |
 | `tests/` | Framework self-tests + reference suites |

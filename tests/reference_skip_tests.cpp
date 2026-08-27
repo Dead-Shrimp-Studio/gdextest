@@ -12,8 +12,8 @@
 
 #include <cstdlib>
 
-#include "framework/assert.h"
-#include "framework/registry.h"
+#include "gdextest/assert.h"
+#include "gdextest/registry.h"
 
 GDEX_TEST(skip_demo, requires_optional_benchmark_service) {
     if (std::getenv("GDX_BENCHMARK_SERVICE") == nullptr) {

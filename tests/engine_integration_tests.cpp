@@ -2,7 +2,7 @@
 //
 // These tests exercise the LIVE Godot engine, so they are the first real
 // consumers of the opaque engine handle stored on TestContext (see
-// framework/engine.h). They run only when the suite is invoked through the
+// gdextest/engine.h). They run only when the suite is invoked through the
 // engine trigger (the fixture's EditorPlugin), where the runner attaches the
 // live tree node to each test's context.
 #ifdef GDEXTEST_ENABLED
@@ -14,9 +14,9 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/memory.hpp> // memnew / memdelete
 
-#include "framework/assert.h"
-#include "framework/engine.h"
-#include "framework/registry.h"
+#include "gdextest/assert.h"
+#include "gdextest/engine.h"
+#include "gdextest/registry.h"
 
 // The engine host (SceneTree) is live and reachable from the context.
 GDEX_TEST_T(engine, tree_is_live_and_reachable, TAG_INTEGRATION) {

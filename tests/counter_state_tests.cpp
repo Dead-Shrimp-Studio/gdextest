@@ -3,8 +3,8 @@
 // until one exists; the point is to prove fixture-style per-test state isolation.
 #ifdef GDEXTEST_ENABLED
 
-#include "framework/assert.h"
-#include "framework/registry.h"
+#include "gdextest/assert.h"
+#include "gdextest/registry.h"
 
 namespace {
 

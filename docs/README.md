@@ -13,7 +13,7 @@ wants.
 
 - Suites are plain C++ using googletest-style macros (`GDEX_TEST`, `GDX_EXPECT_*`).
 - Pure-logic tests need no engine at all; engine-facing tests run inside a real Godot
-  process. Tag a test `TAG_INTEGRATION` and include `framework/engine.h` to reach the live
+  process. Tag a test `TAG_INTEGRATION` and include `gdextest/engine.h` to reach the live
   `SceneTree` from its `TestContext` — singletons, `ClassDB`, and scene-tree structure.
 - The framework core is a pure C++ library with no Godot types — only the engine-boundary
   headers (`runner.h`, `engine.h`) touch Godot.
