@@ -124,6 +124,33 @@ def test_generated_plugin_uses_configured_scan_timeout() -> None:
         assert "const SCAN_TIMEOUT_MS := 90000" in plugin
 
 
+def test_stale_manifests_and_binaries_removed() -> None:
+    """A regenerated fixture must not leave manifests/libraries from an earlier
+    config behind — Godot's editor tries to load every .gdextension it finds.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "libtest.so"
+        source.write_bytes(b"test-library")
+        project = root / "project"
+        MODULE.generate_fixture(project_root=project, library_path=source,
+                                library_basename="libtest.so",
+                                manifest_basename="gdextest.gdextension")
+        stale_manifest = project / "addons" / "gdextest" / "libstale.gdextension"
+        stale_manifest.write_text("stale", encoding="utf-8")
+        stale_binary = project / "addons" / "gdextest" / "bin" / "libstale.so"
+        stale_binary.write_bytes(b"stale")
+        MODULE.generate_fixture(project_root=project, library_path=source,
+                                library_basename="libtest.so",
+                                manifest_basename="gdextest.gdextension")
+        assert not stale_manifest.exists(), "stale .gdextension must be removed"
+        assert not stale_binary.exists(), "stale library must be removed"
+        assert (project / "addons" / "gdextest" /
+                "gdextest.gdextension").is_file()
+        assert (project / "addons" / "gdextest" / "bin" /
+                "libtest.so").read_bytes() == b"test-library"
+
+
 def test_invalid_scan_timeout_rejected() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -150,4 +177,5 @@ if __name__ == "__main__":
     test_invalid_plugin_class_rejected()
     test_generated_plugin_uses_configured_scan_timeout()
     test_invalid_scan_timeout_rejected()
+    test_stale_manifests_and_binaries_removed()
     print("fixture generator tests: ok")

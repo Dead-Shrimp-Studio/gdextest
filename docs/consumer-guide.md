@@ -224,7 +224,7 @@ lib = env.SConscript(
     "extern/gdextest/SConscript",
     variant_dir="build/gdextest", duplicate=0,
     exports={"env": env, "gdextest": {
-        "suites": Glob("tests/*.cpp"),
+        "suites": Glob("tests/**/*.cpp"),
     }},
 )
 if lib:
@@ -429,7 +429,7 @@ lib = env.SConscript(
     exports={"env": env, "gdextest": {
         "entry":    "testsupport/entry.cpp",    # custom entry (optional)
         "adapter":  "testsupport/adapter.cpp",  # custom adapter (optional)
-        "suites":   Glob("tests/*.cpp"),
+        "suites":   Glob("tests/**/*.cpp"),
         "out_dir":  "bin",
         "out_name": "libgdextest",
     }},
@@ -477,6 +477,11 @@ CLI itself (it wipes `build/gdextest/user-data` before every run). See
   script must extend `EditorPlugin` directly, not your native plugin class.
 - **Link errors with `-fno-exceptions`:** add `-fexceptions` to the test target's
   `CXXFLAGS`.
+- **Godot errors on a library/manifest name you no longer use** (e.g. an old
+  `[gdextest.output] name`): the fixture was reused and stale `.gdextension` / `.so`
+  files lingered — the editor scans every `.gdextension` it finds. Run `gdextest clean`
+  to regenerate the fixture from scratch (regeneration now also removes stale files
+  itself).
 - **Test build fails to link with `cannot find -lgodot-cpp...`:** your `SConstruct` sets
   `CPPPATH` / `LIBPATH` with root-relative strings (e.g. `extern/godot-cpp/bin`). The
   framework SConscript rebases those to your project root automatically, so this is

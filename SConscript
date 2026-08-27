@@ -9,7 +9,7 @@
 #       variant_dir="build/gdextest", duplicate=0,
 #       exports={"env": env, "gdextest": {
 #           # Omit 'enabled': the SConscript toggles from `scons tests=true`.
-#           "suites": Glob("tests/*.cpp"),
+#           "suites": Glob("tests/**/*.cpp"),
 #       }},
 #   )
 #   if lib:
@@ -127,7 +127,11 @@ framework_sources = [
     for source in env.Glob(str(framework_root.abspath) + "/src/framework/*.cpp")
 ]
 suite_sources = gdextest.get("suites")
-if suite_sources is None:
+# An explicit but empty list usually means a Glob that matched nothing (e.g.
+# `Glob("tests/*.cpp")` with suites in a subdirectory) — treat it like an
+# unset list and fall back to the CLI/TOML source discovery, which the doctor
+# has already validated against the same .gdextest.toml.
+if not suite_sources:
     configured_sources = _env("gdextest_SOURCES", "")
     if configured_sources:
         suite_sources = [root_path(path) for path in configured_sources.split(os.pathsep)

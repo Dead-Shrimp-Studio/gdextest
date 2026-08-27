@@ -168,6 +168,17 @@ def generate_fixture(*, project_root: str | os.PathLike[str], library_path: str 
     for stale in (addon / "plugin.cfg", addon / "plugin.gd", addon / "runtime.gd"):
         if stale.exists():
             stale.unlink()
+    # Generated output may also be reused with a different config (e.g. a
+    # previous out_name). Godot's editor scans every .gdextension it finds in
+    # the project and tries to load it, so a stale manifest + library from an
+    # earlier run would error (and can crash the editor) — remove everything
+    # except the manifest/library being written now.
+    for stale in addon.glob("*.gdextension"):
+        if stale.name != manifest_basename:
+            stale.unlink()
+    for stale in binary_dir.iterdir():
+        if stale.is_file():
+            stale.unlink()
 
     (root / "project.godot").write_text(
         _project(project_name, godot_version, manifest_basename, native_extensions, host_mode,

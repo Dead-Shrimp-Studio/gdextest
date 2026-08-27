@@ -303,7 +303,7 @@ lib = env.SConscript(
     "extern/gdextest/SConscript",
     variant_dir="build/gdextest", duplicate=0,
     exports={"env": env, "gdextest": {
-        "suites": Glob("tests/*.cpp"),
+        "suites": Glob("tests/**/*.cpp"),
     }},
 )
 if lib:
