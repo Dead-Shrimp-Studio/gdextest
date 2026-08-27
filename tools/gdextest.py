@@ -206,6 +206,33 @@ def _library_path(config: Config) -> Path | None:
     return candidates[0] if candidates else None
 
 
+def _check_undefined_symbols(library: Path) -> None:
+    """Fail fast when the test library has unresolved symbols at load time.
+
+    A suite calling code that is not compiled into the test build (e.g. an
+    implementation living in the consumer's extension sources) does not fail the
+    shared-library link — the dynamic loader only errors when Godot opens the
+    .so. `ldd -r` relocates the library and reports the same undefined symbols
+    up front, with a pointer to the fix.
+    """
+    if sys.platform != "linux" or shutil.which("ldd") is None:
+        return
+    result = subprocess.run(["ldd", "-r", str(library)],
+                            capture_output=True, text=True, check=False)
+    lines = ((getattr(result, "stdout", "") or "").splitlines()
+             + (getattr(result, "stderr", "") or "").splitlines())
+    symbols = [line.strip() for line in lines if "undefined symbol:" in line]
+    if not symbols:
+        return
+    raise RuntimeError(
+        "the test library has unresolved symbols and Godot will fail to load it:\n  "
+        + "\n  ".join(symbols)
+        + "\nThis usually means code your suite calls lives in your extension "
+          "sources, which are not compiled into the test build. Add the "
+          "implementation file(s) and their dependencies (e.g. the md4c "
+          "sources) to `[gdextest.tests] sources` in .gdextest.toml.")
+
+
 def _run_build(config: Config) -> None:
     sources = discover_sources(config)
     if not sources:
@@ -243,11 +270,13 @@ def _run_build(config: Config) -> None:
     finally:
         if injected:
             injected.unlink(missing_ok=True)
-    if not _library_path(config):
+    library = _library_path(config)
+    if not library:
         raise RuntimeError(
             f"the test library was not produced (expected {config.out_dir}/{config.out_name}*); "
             "your SConstruct does not appear to call extern/gdextest/SConscript — "
             "run `gdextest scaffold --apply` to wire it")
+    _check_undefined_symbols(library)
 
 
 def _mode_args(config: Config) -> list[str]:

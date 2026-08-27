@@ -143,6 +143,10 @@ def test_unwired_build_injects_temporary_sconstruct() -> None:
         original_run = cli.subprocess.run
         try:
             def fake_run(command, **kwargs):
+                if command and command[0] == "ldd":
+                    # Undefined-symbol preflight; not the command under test.
+                    return type("Result", (), {"returncode": 0,
+                                                "stdout": "", "stderr": ""})()
                 captured["command"] = list(command)
                 # Read while the temporary SConstruct still exists (cleanup
                 # happens in _run_build's finally, after this returns).
@@ -213,6 +217,10 @@ def test_build_uses_gdextest_env_contract() -> None:
         original_run = cli.subprocess.run
         try:
             def fake_run(command, **kwargs):
+                if command and command[0] == "ldd":
+                    # Undefined-symbol preflight; not the command under test.
+                    return type("Result", (), {"returncode": 0,
+                                                "stdout": "", "stderr": ""})()
                 captured["command"] = list(command)
                 captured["env"] = kwargs.get("env", {})
                 return type("Result", (), {"returncode": 0})()
