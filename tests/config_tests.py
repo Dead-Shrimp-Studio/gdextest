@@ -111,7 +111,7 @@ def test_test_auto_initializes_and_checks_before_build() -> None:
         original_command = cli._godot_command
         original_run = cli.subprocess.run
         try:
-            cli._run_doctor = lambda config, godot: events.append("doctor") or 0
+            cli._run_doctor = lambda config, godot, allow_injection=False: events.append("doctor") or 0
             cli._run_build = lambda config: events.append("build")
             cli.godot_executable = lambda config, override: "/usr/bin/godot"
             cli.godot_version = lambda executable: "4.5"
@@ -129,6 +129,36 @@ def test_test_auto_initializes_and_checks_before_build() -> None:
         assert result == 0
         assert (root / ".gdextest.toml").is_file()
         assert events == ["doctor", "build", "command"]
+
+
+def test_unwired_build_injects_temporary_sconstruct() -> None:
+    """An unwired SConstruct builds via a temporary injected SConstruct that is
+    cleaned up afterwards; the real build file stays untouched."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)   # empty SConstruct -> unwired
+        (root / "bin").mkdir()
+        (root / "bin" / "libgdextest.linux.template_debug.x86_64.so").write_bytes(b"")
+        config = config_module.load_config(root)
+        captured = {}
+        original_run = cli.subprocess.run
+        try:
+            def fake_run(command, **kwargs):
+                captured["command"] = list(command)
+                # Read while the temporary SConstruct still exists (cleanup
+                # happens in _run_build's finally, after this returns).
+                captured["injected"] = Path(command[2]).read_text(encoding="utf-8")
+                return type("Result", (), {"returncode": 0})()
+            cli.subprocess.run = fake_run
+            cli._run_build(config)
+        finally:
+            cli.subprocess.run = original_run
+        assert captured["command"][:2] == ["scons", "-f"]
+        injected = Path(captured["command"][2])
+        assert injected.name == "SConstruct.gdextest"
+        assert injected.parent == root
+        assert "extern/gdextest/SConscript" in captured["injected"]
+        assert not injected.exists(), "temporary SConstruct must be cleaned up"
+        assert (root / "SConstruct").read_text(encoding="utf-8") == ""
 
 
 def test_runtime_fixture_has_autoload_not_editor_plugin() -> None:
@@ -170,8 +200,12 @@ def test_build_uses_gdextest_env_contract() -> None:
     for stale in ("GDEXTEST_SOURCES", "GDEXTEST_BOOTSTRAP", "GDEXTEST_HOST_MODE"):
         assert stale not in scons_script
 
+    wired = ("env = Environment(tools=['default'])\n"
+             "env.SConscript('extern/gdextest/SConscript',\n"
+             "    variant_dir='build/gdextest', duplicate=0,\n"
+             "    exports={'env': env})\n")
     with tempfile.TemporaryDirectory() as directory:
-        root = _consumer_root(directory)
+        root = _consumer_root(directory, sconstruct=wired)
         (root / "bin").mkdir()
         (root / "bin" / "libgdextest.linux.template_debug.x86_64.so").write_bytes(b"")
         config = config_module.load_config(root)
@@ -288,7 +322,7 @@ def test_scaffold_apply_wires_and_generates() -> None:
             project_root=root, framework_dir=None, godot=None, apply=True, force=False)
         original_doctor = cli._run_doctor
         try:
-            cli._run_doctor = lambda config, godot: 0
+            cli._run_doctor = lambda config, godot, allow_injection=False: 0
             result = cli.cmd_scaffold(args)
         finally:
             cli._run_doctor = original_doctor
@@ -356,7 +390,7 @@ def test_cmd_test_passes_through_gdextest_args() -> None:
         original_command = cli._godot_command
         original_run = cli.subprocess.run
         try:
-            cli._run_doctor = lambda config, godot: 0
+            cli._run_doctor = lambda config, godot, allow_injection=False: 0
             cli._run_build = lambda config: None
             cli.godot_executable = lambda config, override: "/usr/bin/godot"
             cli.godot_version = lambda executable: "4.5"
@@ -397,7 +431,7 @@ def test_timeout_budgets_forwarded_from_toml() -> None:
         original_command = cli._godot_command
         original_run = cli.subprocess.run
         try:
-            cli._run_doctor = lambda config, godot: 0
+            cli._run_doctor = lambda config, godot, allow_injection=False: 0
             cli._run_build = lambda config: None
             cli.godot_executable = lambda config, override: "/usr/bin/godot"
             cli.godot_version = lambda executable: "4.5"
@@ -567,6 +601,7 @@ if __name__ == "__main__":
     test_runtime_fixture_has_autoload_not_editor_plugin()
     test_build_uses_gdextest_env_contract()
     test_scons_command_includes_build_args()
+    test_unwired_build_injects_temporary_sconstruct()
     test_run_build_verifies_library_output()
     test_run_environment_wipes_previous_user_data()
     test_doctor_flags_unwired_sconstruct()

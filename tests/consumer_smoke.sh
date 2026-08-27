@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # End-to-end consumer-flow check (interop regression guard).
 #
-# Copies this framework into a scratch consumer repo and drives the documented
-# flow exactly as a real GDExtension would: `gdextest init` -> `gdextest scaffold
-# --apply` (patches SConstruct, generates entry + smoke suite) -> `gdextest test`
-# against the real Godot binary. Catches contract regressions like the env-var
-# mismatch or TOML values being ignored — the class of bugs that only show up
+# Copies this framework into a scratch consumer repo and drives both documented
+# flows exactly as a real GDExtension would, against the real Godot binary:
+#   1. Unwired repo: `gdextest test` builds through a temporary injected
+#      SConstruct (scons -f SConstruct.gdextest) and cleans up afterwards.
+#   2. `gdextest scaffold --apply` (patches SConstruct, generates entry) then
+#      `gdextest test` through the permanently wired build.
+# Catches contract regressions like the env-var mismatch, TOML values being
+# ignored, or the include/path handling — the class of bugs that only show up
 # when the framework is used as a dependency.
 #
 # Usage:
@@ -61,6 +64,25 @@ EOF
 
 cd "$TMP"
 python3 extern/gdextest/tools/gdextest.py init
+
+# A hand-written suite so the unwired (injection) pass has a test to run;
+# scaffold's own suite generation is exercised by the wired pass below.
+mkdir -p tests
+cat > tests/smoke.cpp <<'EOF'
+#include "gdextest/assert.h"
+#include "gdextest/registry.h"
+
+GDEX_TEST(smoke, framework_is_wired) {
+    GDEX_EXPECT(true);
+}
+EOF
+
+# 1) Unwired repo: `gdextest test` must build through a temporary injected
+#    SConstruct and pass without touching the real SConstruct.
+python3 extern/gdextest/tools/gdextest.py test --godot "$GODOT" --json results-injected.json
+
+# 2) `scaffold --apply` wires the real SConstruct permanently (keeps the
+#    existing suite, generates testsupport/entry.cpp), then the wired flow runs.
 python3 extern/gdextest/tools/gdextest.py scaffold --apply --godot "$GODOT"
 python3 extern/gdextest/tools/gdextest.py test --godot "$GODOT" --json results.json --junit results.xml
 
@@ -70,16 +92,29 @@ import sys
 from pathlib import Path
 
 godot = sys.argv[1]
-document = json.loads(Path("results.json").read_text(encoding="utf-8"))
-totals = document["totals"]
-if totals["fail"] or totals["crashed"]:
-    print(f"consumer smoke: FAILED totals {totals}", file=sys.stderr)
-    for result in document["results"]:
-        if result["status"] in ("fail", "crashed"):
-            print(f"  {result['suite']}.{result['name']}: {result['failures']}", file=sys.stderr)
-    sys.exit(1)
+
+
+def check(document, label):
+    totals = document["totals"]
+    if totals["fail"] or totals["crashed"]:
+        print(f"consumer smoke: FAILED {label} totals {totals}", file=sys.stderr)
+        for result in document["results"]:
+            if result["status"] in ("fail", "crashed"):
+                print(f"  {result['suite']}.{result['name']}: {result['failures']}", file=sys.stderr)
+        sys.exit(1)
+
+
+injected = json.loads(Path("results-injected.json").read_text(encoding="utf-8"))
+check(injected, "injected")
+assert not Path("SConstruct.gdextest").exists(), \
+    "temporary injected SConstruct must be cleaned up"
+wired = json.loads(Path("results.json").read_text(encoding="utf-8"))
+check(wired, "wired")
+assert (Path("SConstruct").read_text(encoding="utf-8")
+        .count("extern/gdextest/SConscript") >= 1), \
+    "scaffold must have wired the real SConstruct"
 junit = Path("results.xml").read_text(encoding="utf-8")
-assert f'tests="{totals["pass"] + totals["skip"]}"' in junit, "JUnit counts mismatch"
-print(f"consumer smoke: OK ({totals['pass']} passed, {totals['skip']} skipped) "
-      f"against {godot}; JSON + JUnit written")
+assert f'tests="{wired["totals"]["pass"] + wired["totals"]["skip"]}"' in junit, "JUnit counts mismatch"
+print(f"consumer smoke: OK (injected {injected['totals']['pass']} passed, "
+      f"wired {wired['totals']['pass']} passed) against {godot}")
 PYEOF

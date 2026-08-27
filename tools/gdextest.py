@@ -156,7 +156,7 @@ GDEX_TEST(smoke, framework_is_wired) {
 '''
 
 SCONSTRUCT_SNIPPET = '''
-# --- gdextest test framework (scaffolded; see consumer-guide §6) ---
+# --- gdextest test framework (scaffolded) ---
 lib = env.SConscript(
     "extern/gdextest/SConscript",
     variant_dir="build/gdextest", duplicate=0,
@@ -166,6 +166,26 @@ lib = env.SConscript(
 )
 if lib:
     Default(lib)
+'''
+
+# Appended to a temporary copy of the consumer's SConstruct when it is not
+# wired, so `gdextest test` can build without modifying the real build file.
+# scons -f <file> makes the copy act as the SConstruct; the copy lives in the
+# project root so `#`-anchored paths and variant_dir keep resolving the same.
+# The framework call stays minimal: entry/adapter default to the framework's
+# own, and the CLI's gdextest_* env vars drive suites/host mode from the TOML.
+SCONSTRUCT_INJECTION = '''
+# --- gdextest test framework (temporary injection) ---
+# This block was appended to a temporary copy of your SConstruct so the test
+# library can build without touching your real build file. Run
+# `gdextest scaffold --apply` to make the wiring permanent.
+gdextest_lib = env.SConscript(
+    "extern/gdextest/SConscript",
+    variant_dir="build/gdextest", duplicate=0,
+    exports={"env": env},
+)
+if gdextest_lib:
+    Default(gdextest_lib)
 '''
 
 
@@ -201,12 +221,33 @@ def _run_build(config: Config) -> None:
     env["gdextest_HOST_MODE"] = config.host_mode
     if config.bootstrap:
         env["gdextest_BOOTSTRAP"] = config.bootstrap
-    subprocess.run(_scons_command(config), cwd=config.project_root, env=env, check=True)
+    command = _scons_command(config)
+    injected = None
+    sconstruct = config.project_root / "SConstruct"
+    if sconstruct.is_file() and not _sconstruct_wired(config.project_root):
+        # Unwired repo: build through a temporary SConstruct with the framework
+        # call injected, so `gdextest test` works without touching the consumer's
+        # build file. Cleaned up in a finally; `scaffold --apply` makes it
+        # permanent. Consumers with a custom entry/adapter still use scaffold.
+        injected = config.project_root / "SConstruct.gdextest"
+        injected.write_text(
+            sconstruct.read_text(encoding="utf-8", errors="replace").rstrip()
+            + "\n" + SCONSTRUCT_INJECTION,
+            encoding="utf-8")
+        command = ["scons", "-f", str(injected), "tests=true", *config.build_args]
+        print("gdextest: SConstruct not wired — building via a temporary "
+              "SConstruct.gdextest; run `gdextest scaffold --apply` to wire it "
+              "permanently", flush=True)
+    try:
+        subprocess.run(command, cwd=config.project_root, env=env, check=True)
+    finally:
+        if injected:
+            injected.unlink(missing_ok=True)
     if not _library_path(config):
         raise RuntimeError(
             f"the test library was not produced (expected {config.out_dir}/{config.out_name}*); "
             "your SConstruct does not appear to call extern/gdextest/SConscript — "
-            "see consumer-guide §6")
+            "run `gdextest scaffold --apply` to wire it")
 
 
 def _mode_args(config: Config) -> list[str]:
@@ -362,8 +403,14 @@ def _sconstruct_wired(root: Path) -> bool:
     return "gdextest/SConscript" in content or '"SConscript"' in content
 
 
-def _run_doctor(config: Config, godot_override: str | None) -> int:
-    """Run the environment checks shared by `doctor` and every test run."""
+def _run_doctor(config: Config, godot_override: str | None,
+                allow_injection: bool = False) -> int:
+    """Run the environment checks shared by `doctor` and every test run.
+
+    With `allow_injection`, an unwired SConstruct is reported as an informational
+    note instead of a failure: `gdextest test` builds through a temporary
+    injected SConstruct in that case.
+    """
     print("gdextest doctor", flush=True)
     print(f"project root: {config.project_root}", flush=True)
     print(f"framework:    {config.framework_dir}", flush=True)
@@ -405,14 +452,20 @@ def _run_doctor(config: Config, godot_override: str | None) -> int:
         if "gdextest/SConscript" in content or '"SConscript"' in content:
             ok &= _print_check("SConstruct wiring", "gdextest SConscript referenced", True)
         elif "gdextest" not in content and "SConscript" not in content:
-            ok &= _print_check(
-                "SConstruct wiring",
-                "no gdextest/SConscript reference; SConstruct must call "
-                "extern/gdextest/SConscript (consumer-guide §6)", False)
+            if allow_injection:
+                print("[..] SConstruct wiring: not wired — gdextest test will build via a "
+                      "temporary SConstruct.gdextest; `gdextest scaffold --apply` wires "
+                      "it permanently", flush=True)
+            else:
+                ok &= _print_check(
+                    "SConstruct wiring",
+                    "no gdextest/SConscript reference; SConstruct must call "
+                    "extern/gdextest/SConscript — run `gdextest scaffold --apply` "
+                    "to wire it", False)
         else:
             print("[..] SConstruct wiring: SConscript/gdextest mentioned but no "
                   "extern/gdextest/SConscript call; verify the framework SConscript "
-                  "is wired (consumer-guide §6)", flush=True)
+                  "is wired — run `gdextest scaffold --apply` to wire it", flush=True)
     else:
         ok &= _print_check("SConstruct wiring", "SConstruct not found", False)
     extension_library = locate_extension_library(config)
@@ -553,7 +606,7 @@ def cmd_test(args: argparse.Namespace) -> int:
     if not config_path.exists():
         _write_config(root)
     config = load_config(root, args.framework_dir)
-    doctor_result = _run_doctor(config, args.godot)
+    doctor_result = _run_doctor(config, args.godot, allow_injection=True)
     if doctor_result:
         return doctor_result
     _run_build(config)

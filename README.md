@@ -34,37 +34,11 @@ After the framework has been added to your extension repository, write a suite u
 No `--godot` is needed — when a `Godot_v*` binary isn't on `PATH`, the CLI looks in the
 project, its ancestor directories, and `$HOME`, preferring the configured major.minor.
 
-### Two paths to a working consumer
-
-There are two ways to get from a fresh checkout to a green `test`, and `test` itself
-always runs the same preflight + build + run either way:
-
-1. **Plain quickstart (default path) — one command.** For an existing repo whose
-   `SConstruct` already calls the framework SConscript, everything you need is in one run:
-
-   ```bash
-   ./gdextest test
-   ```
-
-   `test` writes `.gdextest.toml` if it's missing (never overwrites one that exists), runs
-   the doctor checks, builds the test library and fixture, warms the fixture cache, and
-   runs Godot headlessly against your suites.
-
-2. **Setup path — for wiring and custom startup.** Use `init` and `scaffold --apply` when
-   the repo starts unwired (or when you need a custom entry point / plugin class):
-
-   ```bash
-   ./gdextest init                 # create .gdextest.toml
-   ./gdextest scaffold --apply     # patch SConstruct (backup first), generate
-                                   # testsupport/entry.cpp + smoke suite, run doctor
-   ./gdextest test
-   ```
-
-   `scaffold --apply` is the only step that *writes* your `SConstruct` (a `.bak` backup is
-   kept) and the only one that generates the entry point from your TOML `plugin_class` /
-   `entry_symbol`. If you run plain `test` first on an unwired or entry-less repo, the
-   doctor step fails fast with a message pointing at this path — it never guesses about
-   your build wiring.
+`test` writes `.gdextest.toml` if it's missing (never overwrites one that exists), runs
+the doctor checks, builds the test library and fixture, warms the fixture cache, and runs
+Godot headlessly against your suites. `./gdextest scaffold --apply` is only needed for a
+custom entry point / plugin class — it generates `testsupport/entry.cpp` from your TOML
+values (backing up `SConstruct` first).
 
 On every run `test` keeps your config, re-checks the environment, and repeats the
 build/run. It never overwrites an existing `.gdextest.toml`; edit that file when your
@@ -211,14 +185,6 @@ The framework is a thin layer around your existing GDExtension build — there i
 runner binary to install. Add the framework, write tests, and let `gdextest test` own the
 configuration check, build, fixture generation, headless run, and result handling.
 
-> **One-time wiring required.** Because there is no separate runner binary, the framework
-> is compiled *into* your test build, so your `SConstruct` must call
-> `extern/gdextest/SConscript` exactly once — see
-> [Build integration details](#6-build-integration-details). Until it does, `./gdextest
-> test` stops at the doctor preflight with `[!!] SConstruct wiring: no
-> gdextest/SConscript reference`. This is the only manual build change; the wiring is
-> inert unless `tests=true` is passed, so your normal (release) build stays untouched.
-
 ### 1. Add the framework
 
 Add the framework as a git submodule, mirroring the `extern/godot-cpp` pattern used here:
@@ -236,8 +202,8 @@ headers by name instead of reaching into the submodule:
 ```
 extern/gdextest/
   include/gdextest/     # public headers — included as gdextest/...
-  src/framework/        # implementation (.cpp) — compiled by the SConscript, never included
-  SConscript            # reusable build wiring (appends include/ to CPPPATH)
+  src/framework/        # implementation (.cpp) — never included directly
+  SConscript            # reusable build integration (adds include/ to CPPPATH)
 ```
 
 A suite only ever writes `#include "gdextest/assert.h"` (or `registry.h`, `engine.h`, …)
@@ -263,23 +229,18 @@ command:
 
 `test` creates `.gdextest.toml` when it is missing, preserves it when it already exists,
 and runs the doctor checks on every invocation before the build. The checks cover the
-configuration, framework SConscript, SConstruct wiring, Godot version, SCons, test source
-discovery, and any configured consumer extension files. A failed check returns `2` before SCons or Godot is started. Use `./gdextest doctor` to inspect the environment without
-building.
+configuration, framework SConscript, Godot version, SCons, test source discovery, and any
+configured consumer extension files. A failed check returns `2` before SCons or Godot is
+started. Use `./gdextest doctor` to inspect the environment without building.
 
 After the preflight passes, the command builds the test-only library, generates the
 fixture, warms the fixture cache, launches Godot headlessly (Godot is auto-discovered —
 no `--godot` needed), and returns `0` for a passing run or `1` for test failures. `--json`
 resolves against the consumer repository's working directory.
 
-If the `SConstruct` is not yet wired, or you need a custom entry point, kick off with the
-two-command setup instead (see [Quickstart](#quickstart)):
-
-```bash
-./gdextest init                  # create .gdextest.toml
-./gdextest scaffold --apply      # wire SConstruct (backup first), generate entry + smoke
-./gdextest test
-```
+For a custom entry point / plugin class, run `./gdextest scaffold --apply` first — it
+generates `testsupport/entry.cpp` from your TOML values; everything else is covered by
+`./gdextest test`.
 
 ### 5. Customize only when needed
 
@@ -288,52 +249,6 @@ plugin class, extra scons build args). For extension-specific startup, register 
 function pointers with `gdextest::configure_host({&start, &stop})` from your initialization
 path — no weak symbols or platform-specific linker behavior. A custom `entry`/`adapter`
 remains available for the rare case the default host lifecycle isn't enough.
-
-### 6. Build integration details
-
-This is the one mandatory wiring step. Under the hood, the CLI drives the reusable
-[`SConscript`](SConscript), which supplies the generic entry point and adapter, compiles
-the framework plus your suites into a test-only shared object with `GDEXTEST_ENABLED`
-defined, and generates the fixture project. Your `SConstruct` must call it — after
-godot-cpp is wired into `env`, since the test build inherits `env`'s include paths and
-`LIBS`:
-
-```python
-lib = env.SConscript(
-    "extern/gdextest/SConscript",
-    variant_dir="build/gdextest", duplicate=0,
-    exports={"env": env, "gdextest": {
-        "suites": Glob("tests/**/*.cpp"),
-    }},
-)
-if lib:
-    Default(lib)
-```
-
-Notes:
-
-- **Do not export `"enabled"`.** The SConscript enables itself when the build runs with
-  `tests=true` (the CLI always does) or when your env defines `tests`; without the export,
-  a plain `scons` builds your extension exactly as before. Exporting
-  `"enabled": env.get("tests", False)` instead *silently disables* the framework whenever
-  your env does not define `tests`.
-- `suites` is optional — omit it to let `.gdextest.toml` / the CLI's source discovery
-  drive the list, and adjust the glob to your layout if you pass it.
-- **Disabled builds are a no-op.** Without `tests=true`, the SConscript hits its
-  `enabled` gate and `Return()`s immediately (returning `None`), so `if lib:` is falsy and
-  nothing is added to your build — your normal `scons` run compiles no test sources and
-  generates no fixture.
-- **Root-relative env paths are handled.** If your `SConstruct` sets `CPPPATH` / `LIBPATH`
-  with root-relative strings (`extern/godot-cpp/bin`, `src`, …), the test build rebases
-  them to your project root automatically — no `#` prefix required. `#`-anchored,
-  absolute, and `Dir`/`File` entries are left untouched.
-- If the call is missing, `gdextest test` stops at the doctor preflight with the
-  `SConstruct wiring` failure above — it never guesses about your build. `./gdextest
-  scaffold --apply` performs this wiring for you (a `.bak` backup is written first).
-
-No fixture files, manifest, plugin wrapper, or library symlink need to be copied into the
-repository — they're all generated.
-
 
 ## How it works
 
@@ -355,7 +270,7 @@ repository — they're all generated.
 | `include/gdextest/` | Public headers: registry, `TestContext`, assertions, tags, runner |
 | `src/framework/` | Framework implementation (`registry.cpp`, `runner.cpp`, `host.cpp`) |
 | `src/gdextest_entry.cpp` | GDExtension entry + `EditorPlugin` shell (test build only) |
-| `src/support/adapter.cpp` | Per-extension adapter — the one file that knows your wiring |
+| `src/support/adapter.cpp` | Per-extension adapter — the one file that knows your extension's setup |
 | `tests/` | Framework self-tests + reference suites |
 | `tools/generate_fixture.py` | Generates the disposable headless Godot fixture |
 | `build/gdextest/project/` | Generated fixture project (not committed) |

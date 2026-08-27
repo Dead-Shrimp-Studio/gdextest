@@ -42,17 +42,18 @@ godot --headless --editor --path <fixture> -- --gdextest-run [--gdextest-* optio
 
 `test` combines the useful setup steps: missing config initialization, doctor preflight,
 build, fixture generation, and the headless Godot run. A doctor failure returns `2` and
-prevents the build from starting. It is the **one-command quickstart**: for a repo whose
-`SConstruct` already calls the framework SConscript, `./gdextest test` is all you run —
-config is auto-created, Godot is auto-discovered, everything else follows.
+prevents the build from starting. It is the **one-command quickstart**: `./gdextest test`
+is all you run — config is auto-created, Godot is auto-discovered, everything else
+follows. If your `SConstruct` is not wired, `test` builds through a temporary
+`SConstruct.gdextest` (the framework call injected into a copy, `scons -f`, cleaned up
+afterwards) — your build file is never modified.
 
-`scaffold` is only needed for the **setup path** — an unwired `SConstruct` or a custom
-entry point. Without `--apply` it reports that `SConstruct` does not call the framework
-SConscript; with `--apply` it patches the file (backing it up as `SConstruct.gdextest.bak`
-first and verifying the patch parses), generates `testsupport/entry.cpp` and a smoke suite
-from the TOML values, and finishes with the doctor checks. It is the only command that
-writes your `SConstruct`, so `gdextest test` never guesses at your build wiring. The setup
-path is:
+`scaffold` is for making that wiring **permanent** or for a **custom entry point**.
+Without `--apply` it reports that `SConstruct` does not call the framework SConscript;
+with `--apply` it patches the file (backing it up as `SConstruct.gdextest.bak` first and
+verifying the patch parses), generates `testsupport/entry.cpp` and a smoke suite from the
+TOML values, and finishes with the doctor checks. It is the only command that writes
+your `SConstruct`. The setup path is:
 
 ```bash
 ./gdextest init                 # create .gdextest.toml (test auto-does this)
