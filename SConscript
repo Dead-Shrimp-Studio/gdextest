@@ -199,9 +199,41 @@ else:
 if not test_env.get("LIBS"):
     print("gdextest: WARNING - env has no LIBS; did you wire godot-cpp before calling this SConscript?")
 
+# Every test-library object gets an explicit target under this SConscript's
+# variant directory, mirroring the source's path relative to the project root.
+# The host build usually compiles the same extension sources in place (objects
+# beside sources, the godot-cpp convention) with different flags; relying on
+# SCons' implicit object placement then derives the same object paths for both
+# environments and aborts with "Two environments with different actions were
+# specified for the same target". Explicit targets keep the graphs disjoint.
+def _source_node(source):
+    """Resolve a sources-list entry (string = framework-root-relative)."""
+    if isinstance(source, str):
+        return framework_root.File(source)
+    return source
+
+
+def _isolated_object(source):
+    node = _source_node(source)
+    relative = os.path.relpath(node.abspath, _project_root)
+    if relative.startswith(".."):
+        # Outside the project root: flatten so the object still lands in obj/.
+        relative = os.path.basename(relative)
+    # Strip the source extension: a target that already ends in a recognized
+    # suffix (.cpp, .c, ...) suppresses the object-suffix append and SCons
+    # writes the object over a .cpp-named path, which then gets compiled as
+    # source on a later pass. With no extension, SharedObject appends
+    # $SHOBJSUFFIX (.os / .obj) itself.
+    relative = os.path.splitext(relative)[0]
+    return test_env.SharedObject(
+        target=os.path.join(Dir(".").abspath, "obj", relative), source=node)
+
+
+objects = [_isolated_object(source) for source in sources]
+
 out_abs = os.path.join(env.Dir("#").abspath, out_dir)
 target = f"{out_abs}/{out_name}{suffix}{test_env['SHLIBSUFFIX']}"
-lib = test_env.SharedLibrary(target=target, source=sources)
+lib = test_env.SharedLibrary(target=target, source=objects)
 print(f"gdextest: test library -> {target}")
 
 # --- generated fixture -------------------------------------------------------

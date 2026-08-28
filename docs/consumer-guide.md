@@ -444,6 +444,14 @@ CLI itself (it wipes `build/gdextest/user-data` before every run). See
      src/**/*.cpp -> 0)`), and a zero-match pattern fails the doctor and the
      build before Godot runs. The undefined-symbol error itself also lists
      each pattern with its match count.
+- **`Two environments with different actions were specified for the same
+  target: src/….os`:** your own SConstruct compiles the same sources the test
+  library compiles (e.g. `sources` includes `src/**/*.cpp` while your
+  extension build compiles `src/` in place, objects beside sources). Older
+  framework versions let SCons derive the test objects' paths implicitly and
+  collide with the host's; the test build now compiles every object under
+  `build/gdextest/obj/…`, mirroring the source layout — update the
+  `extern/gdextest` submodule to pick this up.
 - **Config arrays may span lines** (`sources = [` with one entry per line);
   older framework versions silently mangled that into a garbage value. '#' is
   a comment only outside quoted strings.

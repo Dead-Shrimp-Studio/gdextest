@@ -323,6 +323,11 @@ def test_build_uses_gdextest_env_contract() -> None:
         assert name in scons_script
     for stale in ("GDEXTEST_SOURCES", "GDEXTEST_BOOTSTRAP", "GDEXTEST_HOST_MODE"):
         assert stale not in scons_script
+    # Test-library objects get explicit targets under the framework variant dir
+    # (build/gdextest/obj/...): a host build that compiles the same sources in
+    # place must never fight the test build for the same object paths
+    # ("Two environments with different actions..." graph error).
+    assert "SharedObject(" in scons_script
 
     wired = ("env = Environment(tools=['default'])\n"
              "env.SConscript('extern/gdextest/SConscript',\n"
