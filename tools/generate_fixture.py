@@ -156,7 +156,11 @@ def _stage_consumer_manifest(manifest: Path, destination: Path,
         return
     if parser.has_section("libraries"):
         for key in parser["libraries"]:
-            parser["libraries"][key] = f'res://addons/consumer/bin/{library_basename}'
+            # ConfigParser writes bare values, but Godot's ConfigFile parser
+            # requires library paths to remain quoted strings (especially for
+            # `res://` URLs).
+            parser["libraries"][key] = _godot_quote(
+                f"res://addons/consumer/bin/{library_basename}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("w", encoding="utf-8") as handle:
         parser.write(handle)

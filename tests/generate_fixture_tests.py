@@ -160,13 +160,13 @@ def test_consumer_manifest_rewritten_for_fixture() -> None:
         source.write_bytes(b"test-library")
         consumer = root / "consumer-addon"
         (consumer / "bin").mkdir(parents=True)
-        consumer_library = consumer / "bin" / "libgcs.linux.debug.x86_64.so"
+        consumer_library = consumer / "bin" / "libgcs.linux.editor.x86_64.so"
         consumer_library.write_bytes(b"consumer-library")
         consumer_manifest = consumer / "gcs.gdextension"
         consumer_manifest.write_text(
             "[configuration]\nentry_symbol = \"gcs_library_init\"\n"
             "[libraries]\n"
-            'linux.debug.x86_64 = "res://addons/gcs/bin/libgcs.linux.debug.x86_64.so"\n',
+            'linux.editor.x86_64 = "res://addons/gcs/bin/libgcs.linux.editor.x86_64.so"\n',
             encoding="utf-8",
         )
         project = root / "project"
@@ -182,11 +182,11 @@ def test_consumer_manifest_rewritten_for_fixture() -> None:
         assert "res://addons/consumer/gcs.gdextension" in project_file
         staged_manifest = (project / "addons" / "consumer" / "gcs.gdextension").read_text()
         assert "entry_symbol = \"gcs_library_init\"" in staged_manifest
-        assert ("res://addons/consumer/bin/libgcs.linux.debug.x86_64.so"
-                in staged_manifest)
+        assert ("linux.editor.x86_64 = \"res://addons/consumer/bin/"
+                "libgcs.linux.editor.x86_64.so\"" in staged_manifest)
         assert "res://addons/gcs/bin/" not in staged_manifest
         staged_library = (project / "addons" / "consumer" / "bin" /
-                          "libgcs.linux.debug.x86_64.so")
+                          "libgcs.linux.editor.x86_64.so")
         assert staged_library.read_bytes() == b"consumer-library"
 
 
