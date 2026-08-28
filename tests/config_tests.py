@@ -44,6 +44,126 @@ def test_structured_config_and_excludes() -> None:
         assert config.validate() == []
 
 
+def test_toml_unterminated_string_raises() -> None:
+    """A missing closing quote must fail the parse, not silently drop sources.
+
+    Regression: `sources = ["a", "b]` used to parse as ["a", '"b'] — the
+    mangled pattern matched no files, which silently compiled a test library
+    missing the code under test (surfacing later as undefined symbols).
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / ".gdextest.toml").write_text(
+            '[gdextest.tests]\nsources = ["tests/**/*.cpp", "src/**/*.cpp]\n',
+            encoding="utf-8")
+        try:
+            config_module.load_toml(root / ".gdextest.toml")
+        except ValueError as error:
+            assert "unterminated string" in str(error)
+        else:
+            raise AssertionError("unterminated string must raise ValueError")
+
+
+def test_toml_multiline_array_parses() -> None:
+    """Arrays may span lines; the parser joins until brackets balance."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / ".gdextest.toml").write_text(
+            '[gdextest.tests]\nsources = [\n  "tests/**/*.cpp",\n  "src/**/*.cpp",\n]\n',
+            encoding="utf-8")
+        parsed = config_module.load_toml(root / ".gdextest.toml")
+        assert parsed["gdextest"]["tests"]["sources"] == [
+            "tests/**/*.cpp", "src/**/*.cpp"]
+
+
+def test_toml_hash_inside_string_is_literal() -> None:
+    """'#' inside a quoted value is not a comment start."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / ".gdextest.toml").write_text(
+            '[gdextest.fixture]\nproject_name = "tests #1"  # trailing comment\n',
+            encoding="utf-8")
+        parsed = config_module.load_toml(root / ".gdextest.toml")
+        assert parsed["gdextest"]["fixture"]["project_name"] == "tests #1"
+
+
+def test_extension_sources_resolve_alongside_suites() -> None:
+    """The consumer layout: suites plus the extension's own sources."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "SConstruct").write_text("", encoding="utf-8")
+        (root / "extern" / "gdextest").mkdir(parents=True)
+        (root / "extern" / "gdextest" / "SConscript").write_text("", encoding="utf-8")
+        (root / "tests").mkdir()
+        (root / "tests" / "text_conversion_tests.cpp").write_text("", encoding="utf-8")
+        (root / "src" / "text").mkdir(parents=True)
+        (root / "src" / "text" / "text_conversion.cpp").write_text("", encoding="utf-8")
+        # Vendored C dependency (e.g. md4c) must also resolve.
+        (root / "src" / "text" / "md4c.c").write_text("", encoding="utf-8")
+        (root / ".gdextest.toml").write_text(
+            '[gdextest]\ngodot_version = "4.5"\n[gdextest.tests]\n'
+            'sources = ["tests/**/*.cpp", "src/**/*.cpp", "src/**/*.c"]\n',
+            encoding="utf-8")
+        config = config_module.load_config(root)
+        sources = config_module.resolve_sources(config)
+        assert [path.name for path in sources] == [
+            "md4c.c", "text_conversion.cpp", "text_conversion_tests.cpp"]
+
+
+def test_zero_match_source_pattern_raises() -> None:
+    """A configured pattern matching nothing fails loudly instead of silently
+    compiling a library that is missing the code under test."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "SConstruct").write_text("", encoding="utf-8")
+        (root / "extern" / "gdextest").mkdir(parents=True)
+        (root / "extern" / "gdextest" / "SConscript").write_text("", encoding="utf-8")
+        (root / "tests").mkdir()
+        (root / "tests" / "suite.cpp").write_text("", encoding="utf-8")
+        (root / ".gdextest.toml").write_text(
+            '[gdextest]\ngodot_version = "4.5"\n[gdextest.tests]\n'
+            'sources = ["tests/**/*.cpp", "src/**/*.cpp"]\n',
+            encoding="utf-8")
+        config = config_module.load_config(root)
+        matches = config_module.source_pattern_matches(config)
+        assert len(matches["tests/**/*.cpp"]) == 1
+        assert matches["src/**/*.cpp"] == []
+        try:
+            config_module.resolve_sources(config)
+        except RuntimeError as error:
+            assert "src/**/*.cpp" in str(error)
+            assert "matched no C++ files" in str(error)
+        else:
+            raise AssertionError("zero-match pattern must raise RuntimeError")
+        # discover_sources keeps its lenient contract for existing callers.
+        assert [path.name for path in config_module.discover_sources(config)] == [
+            "suite.cpp"]
+
+
+def test_doctor_reports_zero_match_pattern() -> None:
+    """Doctor names the pattern that matched nothing and exits non-zero."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        (root / "src").mkdir()
+        (root / ".gdextest.toml").write_text(
+            '[gdextest]\ngodot_version = "4.5"\n[gdextest.tests]\n'
+            'sources = ["tests/**/*.cpp", "src/**/*.cpp"]\n',
+            encoding="utf-8")
+        config = config_module.load_config(root)
+        original_which = cli.shutil.which
+        original_godot = cli.godot_executable
+        original_version = cli.godot_version
+        try:
+            cli.shutil.which = lambda name: "/usr/bin/scons" if name == "scons" else None
+            cli.godot_executable = lambda config, override: "/usr/bin/godot"
+            cli.godot_version = lambda executable: "4.5"
+            assert cli._run_doctor(config, "/usr/bin/godot") == 2
+        finally:
+            cli.shutil.which = original_which
+            cli.godot_executable = original_godot
+            cli.godot_version = original_version
+
+
 def test_init_is_idempotent_without_force() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -795,6 +915,12 @@ def test_scan_timeout_config_parses() -> None:
 
 if __name__ == "__main__":
     test_structured_config_and_excludes()
+    test_toml_unterminated_string_raises()
+    test_toml_multiline_array_parses()
+    test_toml_hash_inside_string_is_literal()
+    test_extension_sources_resolve_alongside_suites()
+    test_zero_match_source_pattern_raises()
+    test_doctor_reports_zero_match_pattern()
     test_init_is_idempotent_without_force()
     test_doctor_rejects_empty_source_set()
     test_test_auto_initializes_and_checks_before_build()

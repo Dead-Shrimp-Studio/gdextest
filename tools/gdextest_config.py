@@ -14,7 +14,9 @@ from typing import Iterable
 
 
 SUPPORTED_HOST_MODES = {"editor", "runtime"}
-SOURCE_SUFFIXES = {".cpp", ".cc", ".cxx"}
+# .c included so vendored C dependencies (e.g. md4c) compile into the test
+# library alongside the extension sources that call them.
+SOURCE_SUFFIXES = {".c", ".cpp", ".cc", ".cxx"}
 
 
 @dataclass
@@ -107,26 +109,105 @@ def find_project_root(start: str | Path = ".") -> Path:
     return path
 
 
+def _strip_comment(line: str) -> str:
+    """Drop a trailing comment; '#' inside quoted strings is literal."""
+    in_string = False
+    escaped = False
+    for index, char in enumerate(line):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "#":
+            return line[:index]
+    return line
+
+
+def _unbalanced_brackets(text: str) -> int:
+    """Net count of unclosed '[' outside quoted strings."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+    return depth
+
+
+def _unterminated_string(text: str) -> bool:
+    """True when `text` ends inside a quoted string."""
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+    return in_string
+
+
+def _array_incomplete(value: str) -> bool:
+    """True when an array value needs continuation lines (or is malformed)."""
+    return _unterminated_string(value) or _unbalanced_brackets(value) > 0
+
+
 def _parse_value(value: str):
     value = value.strip()
-    if value.startswith('"') and value.endswith('"'):
+    if value.startswith('"'):
+        if len(value) < 2 or not value.endswith('"'):
+            raise ValueError(f"unterminated string {value!r} (missing closing quote?)")
         return bytes(value[1:-1], "utf-8").decode("unicode_escape")
-    if value.startswith("[") and value.endswith("]"):
+    if value.startswith("["):
+        if not value.endswith("]"):
+            raise ValueError(f"unterminated array {value!r} (missing closing ']')")
         inner = value[1:-1].strip()
-        return [] if not inner else [_parse_value(item) for item in re.split(r",\s*", inner)]
+        if not inner:
+            return []
+        return [_parse_value(item) for item in re.split(r",\s*", inner) if item.strip()]
     if value.lower() in ("true", "false"):
         return value.lower() == "true"
     return value
 
 
 def load_toml(path: Path) -> dict:
-    """Load the small TOML subset used by gdextest without third-party packages."""
+    """Load the small TOML subset used by gdextest without third-party packages.
+
+    Supports quoted strings, booleans, single-line and multiline arrays, and
+    dotted section headers. Malformed values raise with file:line context
+    instead of being silently mangled — an unterminated string used to parse
+    as a literal pattern (quote included) that then matched no files.
+    """
     result: dict = {}
     section = result
     if not path.is_file():
         return result
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.split("#", 1)[0].strip()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    index = 0
+    while index < len(lines):
+        line_number = index + 1
+        line = _strip_comment(lines[index]).strip()
+        index += 1
         if not line:
             continue
         if line.startswith("[") and line.endswith("]"):
@@ -137,7 +218,23 @@ def load_toml(path: Path) -> dict:
         if "=" not in line:
             continue
         key, value = line.split("=", 1)
-        section[key.strip()] = _parse_value(value)
+        value = value.strip()
+        # Multiline arrays: join continuation lines until brackets balance.
+        while value.startswith("[") and _array_incomplete(value):
+            if index >= len(lines):
+                if _unterminated_string(value):
+                    raise ValueError(
+                        f"{path}:{line_number}: unterminated string in "
+                        f"'{key.strip()}' (missing closing quote?)")
+                raise ValueError(
+                    f"{path}:{line_number}: unterminated array for key "
+                    f"'{key.strip()}' (missing closing ']')")
+            value += " " + _strip_comment(lines[index]).strip()
+            index += 1
+        try:
+            section[key.strip()] = _parse_value(value)
+        except ValueError as error:
+            raise ValueError(f"{path}:{line_number}: {error}") from error
     return result
 
 
@@ -214,16 +311,64 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
     return config
 
 
-def discover_sources(config: Config) -> list[Path]:
-    found: list[Path] = []
+def source_pattern_matches(config: Config) -> dict[str, list[Path]]:
+    """Map each [gdextest.tests] source pattern to the C++ files it matched.
+
+    Patterns are repo-root-relative globs. A pattern matching zero files is
+    reported as an empty list so callers can fail loudly instead of silently
+    compiling a test library that is missing the code under test (which only
+    surfaces later as undefined symbols when Godot loads the .so).
+    """
+    matches: dict[str, list[Path]] = {}
     excluded = [config.project_root / pattern for pattern in config.test_exclude]
     for pattern in config.test_sources:
-        for path in config.project_root.glob(pattern):
+        found: list[Path] = []
+        try:
+            candidates = list(config.project_root.glob(pattern))
+        except ValueError:
+            # Malformed glob (e.g. an empty pattern): report zero matches so
+            # the diagnostics name the offending pattern.
+            candidates = []
+        for path in candidates:
             if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
                 continue
-            if path in found or any(path == candidate or candidate in path.parents for candidate in excluded):
+            if any(path == candidate or candidate in path.parents for candidate in excluded):
                 continue
-            found.append(path)
+            if path not in found:
+                found.append(path)
+        matches[pattern] = found
+    return matches
+
+
+def _zero_match_error(patterns: list[str], config: Config) -> str:
+    return (
+        "[gdextest.tests] sources pattern matched no C++ files: "
+        + ", ".join(repr(pattern) for pattern in patterns)
+        + f" (patterns are repo-root-relative; searched from {config.project_root})")
+
+
+def resolve_sources(config: Config) -> list[Path]:
+    """Discover sources, raising when a configured pattern matches nothing.
+
+    A zero-match pattern is almost always a typo, an unterminated string in
+    the TOML, or a pattern anchored at the wrong root — failing here beats a
+    half-built test library that only fails at load time.
+    """
+    matches = source_pattern_matches(config)
+    empty = [pattern for pattern, paths in matches.items() if not paths]
+    if empty:
+        raise RuntimeError(_zero_match_error(empty, config))
+    found: set[Path] = set()
+    for paths in matches.values():
+        found.update(paths)
+    return sorted(found)
+
+
+def discover_sources(config: Config) -> list[Path]:
+    """Lenient discovery (zero-match patterns ignored) for existing callers."""
+    found: set[Path] = set()
+    for paths in source_pattern_matches(config).values():
+        found.update(paths)
     return sorted(found)
 
 

@@ -16,7 +16,6 @@ import xml.etree.ElementTree as ET
 from gdextest_config import (
     Config,
     discover_consumer_manifests,
-    discover_sources,
     find_project_root,
     godot_cpp_version,
     godot_executable,
@@ -24,6 +23,8 @@ from gdextest_config import (
     load_config,
     locate_extension_library,
     locate_extension_manifest,
+    resolve_sources,
+    source_pattern_matches,
 )
 
 
@@ -207,14 +208,16 @@ def _library_path(config: Config) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def _check_undefined_symbols(library: Path) -> None:
+def _check_undefined_symbols(library: Path, config: Config | None = None) -> None:
     """Fail fast when the test library has unresolved symbols at load time.
 
     A suite calling code that is not compiled into the test build (e.g. an
     implementation living in the consumer's extension sources) does not fail the
     shared-library link — the dynamic loader only errors when Godot opens the
     .so. `ldd -r` relocates the library and reports the same undefined symbols
-    up front, with a pointer to the fix.
+    up front, with a pointer to the fix. With `config`, the error also lists
+    each configured source pattern and how many files it matched, so a pattern
+    that silently matched nothing is visible right in the error.
     """
     if sys.platform != "linux" or shutil.which("ldd") is None:
         return
@@ -225,17 +228,25 @@ def _check_undefined_symbols(library: Path) -> None:
     symbols = [line.strip() for line in lines if "undefined symbol:" in line]
     if not symbols:
         return
-    raise RuntimeError(
+    message = (
         "the test library has unresolved symbols and Godot will fail to load it:\n  "
         + "\n  ".join(symbols)
         + "\nThis usually means code your suite calls lives in your extension "
           "sources, which are not compiled into the test build. Add the "
           "implementation file(s) and their dependencies (e.g. the md4c "
           "sources) to `[gdextest.tests] sources` in .gdextest.toml.")
+    if config is not None:
+        detail = "\n".join(f"  {pattern} -> {len(paths)} file(s)"
+                           for pattern, paths in source_pattern_matches(config).items())
+        message += "\nCurrent source patterns (pattern -> files matched):\n" + detail
+    raise RuntimeError(message)
 
 
 def _run_build(config: Config) -> None:
-    sources = discover_sources(config)
+    # Strict discovery: a configured pattern matching nothing is a config error
+    # (typo, unterminated string, wrong root) — fail before building instead of
+    # compiling a library that is missing the code under test.
+    sources = resolve_sources(config)
     if not sources:
         raise RuntimeError("no test sources found; check [gdextest.tests].sources")
     errors = config.validate()
@@ -277,7 +288,7 @@ def _run_build(config: Config) -> None:
             f"the test library was not produced (expected {config.out_dir}/{config.out_name}*); "
             "your SConstruct does not appear to call extern/gdextest/SConscript — "
             "run `gdextest scaffold --apply` to wire it")
-    _check_undefined_symbols(library)
+    _check_undefined_symbols(library, config)
 
 
 def _mode_args(config: Config) -> list[str]:
@@ -445,13 +456,22 @@ def _run_doctor(config: Config, godot_override: str | None,
     print(f"project root: {config.project_root}", flush=True)
     print(f"framework:    {config.framework_dir}", flush=True)
     print(f"host mode:    {config.host_mode}", flush=True)
-    source_count = len(discover_sources(config))
-    print(f"test sources: {source_count}", flush=True)
+    matches = source_pattern_matches(config)
+    source_count = sum(len(paths) for paths in matches.values())
+    detail = ", ".join(f"{pattern} -> {len(paths)}"
+                       for pattern, paths in matches.items())
+    print(f"test sources: {source_count} ({detail})" if detail
+          else "test sources: 0", flush=True)
 
     ok = True
     errors = config.validate()
     if not errors and not source_count:
         errors.append("no test sources found; check [gdextest.tests].sources")
+    zero_patterns = [pattern for pattern, paths in matches.items() if not paths]
+    if zero_patterns:
+        errors.append("[gdextest.tests] sources pattern matched no C++ files: "
+                      + ", ".join(repr(pattern) for pattern in zero_patterns)
+                      + " (patterns are repo-root-relative)")
     ok &= _print_check("configuration", "valid" if not errors else "; ".join(errors), not errors)
     try:
         executable = godot_executable(config, godot_override)
@@ -812,7 +832,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         return args.function(args)
-    except (FileNotFoundError, RuntimeError, OSError, subprocess.CalledProcessError) as error:
+    except (FileNotFoundError, RuntimeError, OSError, ValueError,
+            subprocess.CalledProcessError) as error:
         print(f"gdextest: error: {error}", file=sys.stderr)
         return 2
 

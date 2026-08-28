@@ -137,8 +137,13 @@ if not suite_sources:
         suite_sources = [root_path(path) for path in configured_sources.split(os.pathsep)
                          if path]
     else:
-        suite_sources = [str(path) for path in
-                         _config_module.discover_sources(toml_config)]
+        # Strict discovery: a zero-match pattern in the TOML is a config error,
+        # not an empty suite set — fail naming the offending pattern.
+        try:
+            suite_sources = [str(path) for path in
+                             _config_module.resolve_sources(toml_config)]
+        except RuntimeError as error:
+            raise UserError(f"gdextest: {error}")
 bootstrap = gdextest.get("bootstrap", _env("gdextest_BOOTSTRAP", toml_config.bootstrap))
 bootstrap_path = env.File(root_path(bootstrap)) if bootstrap else None
 if bootstrap_path and bootstrap_path.exists():

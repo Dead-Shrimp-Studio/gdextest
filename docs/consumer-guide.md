@@ -201,7 +201,9 @@ args = [] # extra scons args, e.g. ["platform=windows", "target=editor", "arch=x
 The `[gdextest.test]` budgets are forwarded to the runner as `--gdextest-*` flags on every
 CLI run — CI on slow machines or under ASan can raise them without rebuilding the
 framework. `scan_timeout_ms` bounds the editor filesystem scan in the generated fixture
-host (raise it for large repos / loaded CI).
+host (raise it for large repos / loaded CI). Arrays may span multiple lines; strings are
+double-quoted and must be terminated — a missing closing quote is a parse error, and a
+pattern that matches no files fails the build with the offending pattern named.
 
 The `test` preflight validates the configuration, framework path, Godot version, SCons,
 discovered test sources, and any configured consumer extension files on every run. Run
@@ -424,6 +426,27 @@ CLI itself (it wipes `build/gdextest/user-data` before every run). See
 
 ## Troubleshooting
 
+- **`undefined symbol: ...` (e.g. a mangled `_ZN…` name) even though the
+  implementation is listed under `[gdextest.tests] sources`:** the pattern
+  probably never matched anything. Check three things:
+  1. **The TOML parses.** A missing closing quote —
+     `sources = ["tests/**/*.cpp", "src/**/*.cpp]` — is rejected with a
+     file:line error; older framework versions silently turned it into a
+     literal pattern (quote included) that matched no files, so only the
+     suites compiled and the extension symbols stayed undefined.
+  2. **Patterns are repo-root-relative.** `src/**/*.cpp` does not reach
+     sources in a subdirectory (e.g. `gcs-test-project/src/`); spell the path
+     from the repository root. Vendored C dependencies (e.g. md4c) compile in
+     too — add a `**/*.c` pattern (`.c`, `.cpp`, `.cc`, and `.cxx` are all
+     accepted; a `*.cpp` glob does not match `.c` files).
+  3. **`gdextest doctor` shows what actually matched** — every pattern is
+     printed with its file count (`test sources: 2 (tests/**/*.cpp -> 1,
+     src/**/*.cpp -> 0)`), and a zero-match pattern fails the doctor and the
+     build before Godot runs. The undefined-symbol error itself also lists
+     each pattern with its match count.
+- **Config arrays may span lines** (`sources = [` with one entry per line);
+  older framework versions silently mangled that into a garbage value. '#' is
+  a comment only outside quoted strings.
 - **Editor hangs on `--headless --editor`:** the run isn't triggering — no `--gdextest-run`
   / `GDX_RUN_TESTS`, or your adapter isn't being called. Check the plugin is enabled in
   `project.godot` and the `.gdextension` entry symbol matches your `init` function.
