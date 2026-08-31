@@ -1,5 +1,4 @@
-// Framework self-tests (plan §12, category "self"). Verifies the framework's own
-// behavior before any host code trusts it. Compiled only under GDEXTEST_ENABLED.
+// Compiled only under GDEXTEST_ENABLED.
 #ifdef GDEXTEST_ENABLED
 
 #include <algorithm>

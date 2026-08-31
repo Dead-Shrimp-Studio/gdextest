@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "context.h"
+#include "strings.h"
 
 namespace gdextest {
 
@@ -84,12 +85,17 @@ inline std::string fmt_cmp(const char *op, const char *aexpr, const char *bexpr,
 
 #define GDEX_EXPECT_STR_EQ(a, b) do { \
     const auto &gdx_a = (a); const auto &gdx_b = (b); \
-    const std::string gdx_a_string = std::string(gdx_a); \
-    const std::string gdx_b_string = std::string(gdx_b); \
+    const std::string gdx_a_string = gdextest::to_std_string(gdx_a); \
+    const std::string gdx_b_string = gdextest::to_std_string(gdx_b); \
     if (gdx_a_string != gdx_b_string) GDEX_RECORD_(::gdextest::fmt_eq(#a, #b, gdx_a_string, gdx_b_string)); } while (0)
+#define GDEX_EXPECT_STR_NE(a, b) do { \
+    const auto &gdx_a = (a); const auto &gdx_b = (b); \
+    const std::string gdx_a_string = gdextest::to_std_string(gdx_a); \
+    const std::string gdx_b_string = gdextest::to_std_string(gdx_b); \
+    if (gdx_a_string == gdx_b_string) GDEX_RECORD_(::gdextest::fmt_cmp("!=", #a, #b, gdx_a_string, gdx_b_string)); } while (0)
 #define GDEX_EXPECT_STR_CONTAINS(hay, needle) do { \
     const auto &gdx_hay = (hay); const auto &gdx_needle = (needle); \
-    if (std::string(gdx_hay).find(gdx_needle) == std::string::npos) \
+    if (gdextest::to_std_string(gdx_hay).find(gdextest::to_std_string(gdx_needle)) == std::string::npos) \
         GDEX_RECORD_(std::string("expected ") + #hay + " to contain " + #needle); } while (0)
 
 #define GDEX_EXPECT_NULL(ptr) do { \
