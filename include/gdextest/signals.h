@@ -36,7 +36,7 @@ private:
 public:
 
     SignalMonitor();
-    ~SignalMonitor() override;
+    ~SignalMonitor();
 
     // GDExtension VarArg receiver for dynamic signal invocations
     Variant _on_signal_fired(const Variant **p_args, GDExtensionInt p_arg_count, GDExtensionCallError &r_error);

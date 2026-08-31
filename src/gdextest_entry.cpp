@@ -3,6 +3,7 @@
 #ifdef GDEXTEST_ENABLED
 
 #include "gdextest/adapter.h"
+#include "gdextest/signals.h"
 
 #include <godot_cpp/classes/editor_plugin.hpp>
 #include <godot_cpp/godot.hpp>
@@ -35,6 +36,7 @@ using namespace godot;
 
 void initialize_test_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_EDITOR) return;
+    GDREGISTER_CLASS(gdextest::SignalMonitor);
     ClassDB::register_class<GdextestPlugin>();
 }
 

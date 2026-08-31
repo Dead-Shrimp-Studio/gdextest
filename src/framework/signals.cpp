@@ -49,6 +49,8 @@ gdextest::SignalMonitor::~SignalMonitor() {}
 
 Variant gdextest::SignalMonitor::_on_signal_fired(const Variant **p_args, GDExtensionInt p_arg_count, GDExtensionCallError &r_error)
 {
+    (void)r_error;
+
     // Bound arguments are appended to the end: [target_id, signal_name]
     if (p_arg_count < 2) {
         return Variant();

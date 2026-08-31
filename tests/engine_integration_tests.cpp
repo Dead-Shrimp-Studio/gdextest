@@ -17,6 +17,7 @@
 #include "gdextest/assert.h"
 #include "gdextest/engine.h"
 #include "gdextest/registry.h"
+#include "gdextest/signals.h"
 
 // The engine host (SceneTree) is live and reachable from the context.
 GDEX_TEST_T(engine, tree_is_live_and_reachable, TAG_INTEGRATION) {
@@ -71,6 +72,28 @@ GDEX_TEST_T(engine, tracked_ref_is_released_cleanly, TAG_INTEGRATION) {
     ctx.track_ref(value.ptr());
     value.unref();
     GDEX_EXPECT_TRUE(true);
+}
+
+GDEX_TEST_T(engine, signal_monitor_instantiation, TAG_INTEGRATION) {
+    gdextest::SignalMonitor &monitor = ctx.signals();
+    const uint64_t id = monitor.get_instance_id();
+    GDEX_EXPECT_NOT_NULL(godot::UtilityFunctions::instance_from_id(static_cast<int64_t>(id)));
+}
+
+GDEX_TEST_T(engine, signal_monitor_base_case, TAG_INTEGRATION) {
+    gdextest::SignalMonitor &monitor = ctx.signals();
+    GDEX_EXPECT_TRUE(monitor.evaluate());
+}
+
+GDEX_TEST_T(engine, signal_monitor_emission, TAG_INTEGRATION) {
+    gdextest::SignalMonitor &monitor = ctx.signals();
+    godot::SceneTree *tree = gdextest::engine_tree(ctx);
+
+    monitor.add(tree, "node_added", 1);
+    GDEX_EXPECT_FALSE(monitor.evaluate());
+
+    monitor.remove(tree, "node_added");
+    GDEX_EXPECT_EQ(monitor.get_emission_count(tree, "node_added"), 0);
 }
 
 #endif // GDEXTEST_ENABLED
