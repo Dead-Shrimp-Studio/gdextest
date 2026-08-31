@@ -5,7 +5,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/core/object.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
@@ -21,8 +20,8 @@ struct SignalData {
     std::vector<std::vector<Variant>> emission_history;
 };
 
-class SignalMonitor : public Node {
-    GDCLASS(SignalMonitor, Node)
+class SignalMonitor : public Object {
+    GDCLASS(SignalMonitor, Object)
 
 protected:
 

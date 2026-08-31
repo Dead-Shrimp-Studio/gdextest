@@ -1,10 +1,34 @@
+
 #include "gdextest/signals.h"
 #include "gdextest/strings.h"
+#include "gdextest/context.h"
 
 #include <godot_cpp/core/class_db.hpp>
-#include <godot_cpp/classes/object.hpp>
 
 using namespace godot;
+
+/**
+ * @brief Lazy registration if the user decides to call on signals(). We use the LIFO teardown pipeline to remove the connections and memory.
+ */
+
+namespace gdextest
+{
+    SignalMonitor &TestContext::signals() {
+        if (!signals_) {
+
+            signals_ = memnew(SignalMonitor);
+
+            add_teardown([this]() {
+                if (signals_) {
+                    signals_->remove_all();
+                    memdelete(signals_);
+                    signals_ = nullptr;
+                }
+            });
+        }
+        return *signals_;
+    }
+}
 
 static const std::vector<std::vector<Variant>> EMPTY_HISTORY;
 
@@ -21,11 +45,7 @@ void gdextest::SignalMonitor::_bind_methods()
 }
 
 gdextest::SignalMonitor::SignalMonitor() {}
-
-gdextest::SignalMonitor::~SignalMonitor()
-{
-    remove_all();
-}
+gdextest::SignalMonitor::~SignalMonitor() {}
 
 Variant gdextest::SignalMonitor::_on_signal_fired(const Variant **p_args, GDExtensionInt p_arg_count, GDExtensionCallError &r_error)
 {

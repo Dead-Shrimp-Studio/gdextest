@@ -10,6 +10,7 @@
 
 namespace gdextest {
 
+class SignalMonitor;
 using Teardown = std::function<void()>;
 
 struct Failure {
@@ -74,6 +75,8 @@ public:
     void set_engine(void *engine) { engine_ = engine; }
     void *engine_handle() const { return engine_; }
 
+    SignalMonitor &signals();
+
     // Async waits for multi-frame tests (plan §7.2, Milestone C). Used as
     // `co_await ctx.await_frames(2)` inside a GDEX_TEST_ASYNC body; the runner's
     // frame pump resumes the body once the wait resolves. `timeout_ms` bounds
@@ -92,8 +95,8 @@ private:
     // Live engine host (the tree node handed to run_all_and_quit), or null for
     // self/sub invocations.
     void *engine_ = nullptr;
+    SignalMonitor* signals_ = nullptr;
 
-private:
     struct TrackedObject { uint64_t id = 0; };
     struct TrackedRef { void *ptr = nullptr; int32_t initial_count = 0; };
     std::vector<TrackedObject> tracked_objects_;
