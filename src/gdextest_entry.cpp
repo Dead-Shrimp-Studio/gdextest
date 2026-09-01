@@ -29,9 +29,7 @@ public:
 using namespace godot;
 
 void initialize_test_module(ModuleInitializationLevel p_level) {
-    if (auto *adapter = gdextest::AdapterRegistry::instance().get_adapter()) {
-        adapter->on_initialize(p_level);
-    }
+    gdextest::AdapterRegistry::instance().dispatch_initialize(p_level);
 
     if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
         GDREGISTER_CLASS(gdextest::SignalMonitor);
@@ -40,9 +38,7 @@ void initialize_test_module(ModuleInitializationLevel p_level) {
 }
 
 void uninitialize_test_module(ModuleInitializationLevel p_level) {
-    if (auto *adapter = gdextest::AdapterRegistry::instance().get_adapter()) {
-        adapter->on_uninitialize(p_level);
-    }
+    gdextest::AdapterRegistry::instance().dispatch_uninitialize(p_level);
 }
 
 extern "C" {

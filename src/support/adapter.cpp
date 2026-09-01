@@ -27,9 +27,7 @@ namespace gdextest_adapter {
 
 void maybe_run(godot::Node *tree_node) {
     if (!test_trigger_present()) return;
-    if (auto *adapter = gdextest::AdapterRegistry::instance().get_adapter()) {
-        adapter->on_ready(tree_node);
-    }
+    gdextest::AdapterRegistry::instance().dispatch_ready(tree_node);
     gdextest::bootstrap_host();
     gdextest::run_all_and_quit(tree_node);
 }
