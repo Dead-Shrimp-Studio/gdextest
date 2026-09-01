@@ -1,49 +1,76 @@
 # gdextest documentation
 
-This folder is the full reference for the gdextest GDExtension testing framework. For a
-5-minute getting-started read, see the [project README](../README.md) instead.
+Welcome to the gdextest documentation. gdextest is a C++ testing framework for Godot GDExtensions.
 
-## What gdextest is
+It runs your test suites **inside a real, headless Godot process**. You compile the framework together with your suites into one test-only shared object. A generated fixture project loads that object. The process prints a summary and exits with a pass/fail code that a CI pipeline consumes directly.
 
-A C++ testing framework for Godot GDExtensions that runs your suites **inside a headless
-Godot binary**. You compile the framework into a test-only shared object, load it through a
-fixture Godot project, and run `godot --headless`. The process prints a summary (human or
-JSON), and its exit code is your pass/fail signal — which is exactly what a CI pipeline
-wants.
+## Highlights
 
-- Suites are plain C++ using googletest-style macros (`GDEX_TEST`, `GDX_EXPECT_*`).
-- Pure-logic tests need no engine at all; engine-facing tests run inside a real Godot
-  process. Tag a test `TAG_INTEGRATION` and include `gdextest/engine.h` to reach the live
-  `SceneTree` from its `TestContext` — singletons, `ClassDB`, and scene-tree structure.
-- The framework core is a pure C++ library with no Godot types — only the engine-boundary
-  headers (`runner.h`, `engine.h`) touch Godot.
+- **Plain C++ tests.** googletest-style registration and assertion macros (`GDEX_TEST`, `GDEX_EXPECT_EQ`, ...). No DSL and no scripting layer.
+- **Real engine access.** Pure-logic tests need no engine. Tag a test `TAG_INTEGRATION` to reach singletons, `ClassDB`, and the live scene tree.
+- **Async tests.** C++20 coroutines suspend across engine frames: `co_await ctx.await_frames(2)`.
+- **Signal monitoring.** Watch any object's signals, count emissions, and inspect the arguments of every emission.
+- **Resource checks.** Track Godot objects and `RefCounted` references. The framework fails the test when they leak.
+- **One command.** `gdextest test` builds, generates the fixture, launches Godot, and returns `0` or `1`.
+- **CI-friendly output.** Human summary, JSON, and JUnit XML. Filtering, sharding, and shard merging are built in.
+- **Zero footprint in release.** The framework compiles only into the test build. Release builds never see it.
 
-## Status
+## A 60-second example
 
-Working and verified on Godot **4.5** (Linux x86_64): framework core, sync runner, human +
-JSON reporting, filtering/sharding/shuffling, usage-error exit code 2, live-engine
-integration tests, **async / multi-frame tests** (`GDEX_TEST_ASYNC` + `co_await
-ctx.await_frames/await_timer_ms`, driven by a `process_frame` pump with per-wait and
-per-test timeouts), flaky retries, tracked object/reference teardown checks, editor and
-runtime fixtures, headless execution, and a one-command consumer flow: `gdextest test`
-runs without any `SConstruct` wiring (unwired repos build through a temporary injected
-copy, removed afterwards). `TAG_FLAKY` retries up to 3 times by default;
-`TestContext::track_object()` and `track_ref()` validate teardown state.
-See [.plans/gdextension-testing-framework.md](../.plans/gdextension-testing-framework.md)
-for the milestone plan and remaining design work.
+```bash
+git submodule add <this-repo-url> extern/gdextest
+git submodule update --init
+```
 
-## Doc map
+```cpp
+// tests/smoke.cpp
+#include "gdextest/assert.h"
+#include "gdextest/registry.h"
 
-| Doc | Read it to understand… |
+GDEX_TEST(smoke, framework_is_wired) {
+    GDEX_EXPECT(true);
+}
+```
+
+```bash
+./extern/gdextest/gdextest test
+```
+
+The command writes a starter config when none exists, checks the environment, builds the test library, and runs it headless. Exit code `0` means all tests passed. Exit code `1` means at least one test failed. See [Getting started](getting-started.md) for the full walkthrough.
+
+## Documentation map
+
+| Page | Read it to learn ... |
 | --- | --- |
-| [architecture.md](architecture.md) | How the framework fits together: layers, execution model, design rules, lifecycle of a run |
-| [api-reference.md](api-reference.md) | The complete public API: registration macros, assertions, `TestContext`, async waits, resource tracking, filtering, tags, retries, and runner entry points |
-| [cli.md](cli.md) | Quickstart lifecycle, automatic config initialization, the two-tier "plain `test` vs `init`/`scaffold`" setup, doctor preflight, invocation, flags, exit codes, and output formats |
-| [consumer-guide.md](consumer-guide.md) | How another extension repo integrates gdextest (adapter, entry, fixture, build, CI) |
-| [testing/notes.md](testing/notes.md) | Verified engine facts: headless quit codes, safe hook points, `user://` hermeticity, timing gotchas |
+| [Getting started](getting-started.md) | Install the framework, write a first suite, run it, wire CI |
+| [Writing tests](writing-tests.md) | Registration macros, tags, every assertion, teardowns, skipping, resource tracking |
+| [Async tests](async-tests.md) | Multi-frame tests with `co_await`, waits, timeouts, and budgets |
+| [Engine integration](engine-integration.md) | Live-engine tests and the `SignalMonitor` API |
+| [Architecture](architecture.md) | Design goals, layering rules, the adapter system, the life of a run |
+| [CLI reference](cli.md) | Every command and flag, exit codes, and output formats |
+| [Configuration](configuration.md) | The full `.gdextest.toml` reference |
+| [Consumer guide](consumer-guide.md) | End-to-end integration in another repository: build, entry, adapter, fixtures |
+| [API reference](api-reference.md) | The complete public API, header by header |
+| [Troubleshooting](troubleshooting.md) | Known failure modes and their fixes |
 
-## Related
+## Repository layout
 
-- [README](../README.md) — test-first quickstart and integration overview.
-- [.plans/gdextension-testing-framework.md](../.plans/gdextension-testing-framework.md) —
-  milestone plan and open questions.
+| Path | Role |
+| --- | --- |
+| `include/gdextest/` | Public headers. This directory is the whole API surface. |
+| `src/framework/` | Core implementation: registry, runner, host, signals. |
+| `src/gdextest_entry.cpp` | GDExtension entry point and editor-plugin shell for the test build. |
+| `src/support/adapter.cpp` | Reference adapter: trigger detection and run startup. |
+| `tools/` | The `gdextest` CLI, config loading, and the fixture generator. |
+| `tests/` | The framework's own suites and the consumer smoke test. |
+| `gdextest` | The CLI wrapper script. |
+
+## Requirements
+
+- Godot **4.5**. The framework uses 4.5-only GDExtension APIs.
+- SCons and a C++20 toolchain. Coroutines need C++20.
+- Python 3 for the CLI.
+
+## License
+
+See [LICENSE](../LICENSE) in the repository root.

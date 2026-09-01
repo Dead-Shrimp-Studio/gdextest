@@ -1,156 +1,116 @@
-# Command-line reference
+# CLI reference
 
-## Invocation shape
-
-The CLI is the `gdextest` wrapper script inside the framework submodule; run it from your
-repo root as `./extern/gdextest/gdextest <command>`. (The framework's own repo uses
-`./gdextest`.) The consumer-facing command is:
+The CLI is the `gdextest` script inside the framework submodule. Run it from your repository root:
 
 ```bash
-./extern/gdextest/gdextest test [--godot /path/to/Godot] [--filter=...] [--json=results.json]
+./extern/gdextest/gdextest <command> [flags]
 ```
 
-`test` is intentionally safe to run from a freshly cloned consumer repository. If
-`.gdextest.toml` is missing, it writes the starter config once. It then runs the doctor
-checks on every invocation before building or launching Godot. Existing configuration is
-never overwritten by `test`; use `init --force` for an explicit reset.
+(The framework's own repository uses `./gdextest`.) Global flags: `--project-root` (default `.`) and `--framework-dir` (default `extern/gdextest`).
 
-The test run is triggered by launching Godot against the fixture project. Engine arguments
-go before `--`; gdextest arguments go after `--`:
-
-```bash
-godot --headless --editor --path <fixture> -- --gdextest-run [--gdextest-* options]
-```
-
-- The **trigger** (`--gdextest-run`, or the `GDX_RUN_TESTS` env var) is detected in *both*
-  argument lists — before or after `--` — because Godot 4.5 splits them differently
-  (`get_cmdline_args()` vs `get_cmdline_user_args()`; see `testing/notes.md` §3.2).
-- The **option flags** (`--gdextest-filter=…`, `--gdextest-json=…`, …) are read from the user
-  list only, so pass them after `--`.
-- Without a trigger, the extension loads but does nothing — normal startup continues.
-
-## Setup commands
+## Commands
 
 | Command | Effect |
 | --- | --- |
-| `gdextest init` | Create the starter `.gdextest.toml` if it does not exist |
-| `gdextest init --ci` | Create the starter config and GitHub Actions workflow |
-| `gdextest init --force` | Regenerate the starter config and any requested workflow |
-| `gdextest doctor` | Run environment checks without building or running tests |
-| `gdextest scaffold [--apply]` | Wire `SConstruct`, generate entry + smoke suite, run doctor |
-| `gdextest list` | Build the test library and list selected tests |
-| `gdextest report <paths…>` | Merge shard result JSON into one JSON/JUnit report |
-| `gdextest clean` | Remove generated test output |
+| `gdextest test` | The one-command flow: config init, doctor preflight, build, fixture generation, headless run. |
+| `gdextest init` | Create the starter `.gdextest.toml`. `--ci` also writes a GitHub Actions workflow. `--force` regenerates. |
+| `gdextest doctor` | Environment checks without building. |
+| `gdextest scaffold` | Wire the `SConstruct` permanently (`--apply`), generate the entry point and a smoke suite, then run doctor. |
+| `gdextest list` | Build the test library and list the selected tests. Needs a run trigger: pass `--gdextest-run` through or set `GDX_RUN_TESTS`. |
+| `gdextest report` | Merge shard result documents into one JSON/JUnit report. |
+| `gdextest clean` | Remove the fixture directory and the build output. |
 
-`test` combines the useful setup steps: missing config initialization, doctor preflight,
-build, fixture generation, and the headless Godot run. A doctor failure returns `2` and
-prevents the build from starting. It is the **one-command quickstart**: `gdextest test`
-is all you run — config is auto-created, Godot is auto-discovered, everything else
-follows. If your `SConstruct` is not wired, `test` builds through a temporary
-`SConstruct.gdextest` (the framework call injected into a copy, `scons -f`, cleaned up
-afterwards) — your build file is never modified.
+`test` is safe on a fresh clone: it creates the starter config only when none exists, and it never modifies your `SConstruct`. When the build file does not call the framework SConscript, `test` builds through a temporary injected copy (`SConstruct.gdextest`, created with `scons -f`, deleted afterwards). `scaffold --apply` is the only command that writes your `SConstruct`; it backs the file up as `SConstruct.gdextest.bak` first and verifies the patch parses.
 
-`scaffold` is for making that wiring **permanent** or for a **custom entry point**.
-Without `--apply` it reports that `SConstruct` does not call the framework SConscript;
-with `--apply` it patches the file (backing it up as `SConstruct.gdextest.bak` first and
-verifying the patch parses), generates `testsupport/entry.cpp` and a smoke suite from the
-TOML values, and finishes with the doctor checks. It is the only command that writes
-your `SConstruct`. The setup path is:
+## Flags for `test` and `list`
 
-```bash
-./extern/gdextest/gdextest init                 # create .gdextest.toml (test auto-does this)
-./extern/gdextest/gdextest scaffold --apply     # wire SConstruct + generate entry/smoke
-./extern/gdextest/gdextest test
-```
+| Flag | Effect |
+| --- | --- |
+| `--godot /path/to/Godot` | Use this Godot binary. Otherwise: config `godot` key, `GODOT` env var, `godot` on `PATH`, then a `Godot_v*` search. |
+| `--filter=<spec>` | Select tests. Comma-separated globs; `-` prefix excludes. Forwarded to the runner. |
+| `--shard=k/n` | Run shard `k` (0-based) of `n`. Stable hash assignment. Forwarded to the runner. |
+| `--shuffle[=seed]` | Randomize run order with a fixed LCG. `--shuffle` alone uses seed 1. Forwarded to the runner. |
+| `--json=<path>` | Write the run's JSON document here. The CLI resolves the path to an absolute path before launching Godot. |
+| `--junit=<path>` | Also write JUnit XML, converted from the run's JSON. `--gdextest-junit=<path>` works as a pass-through too. |
+| `--keep-fixture` | Keep the generated fixture project when the run fails. Removed on a green run as usual. |
 
-`report shard*.json --json=merged.json [--junit=results.xml]` merges the JSON documents
-produced by parallel `--shard` runs: results are concatenated and `totals` recomputed, and
-the merged document (optionally also JUnit XML) is written. It exits `1` when any merged
-test failed or crashed, mirroring the runner.
+Unknown `--gdextest-*` arguments are not rejected by the CLI; `test` passes them through to the runner verbatim, so new runner flags work without a CLI update. Typos still fail: the runner exits `2` on unknown options. Any other unknown argument is a CLI usage error.
 
-## Flags
+## Runner options (`--gdextest-*`)
 
-| Flag | Effect | Notes |
+The runner reads these from Godot's user argument list (after `--`). The CLI forwards them; you rarely type them yourself.
+
+| Option | Effect | Default |
 | --- | --- | --- |
-| `--gdextest-run` | Run the suites, print the summary, quit | The trigger. `GDX_RUN_TESTS=1` env var is equivalent |
-| `--gdextest-list` | Print the selected tests and quit without running | Requires a trigger to be present |
-| `--gdextest-filter=<spec>` | Select tests | Comma-separated globs; `-` prefix excludes, e.g. `--gdextest-filter=string_utils.*,-string_utils.trim_no_op*` |
-| `--gdextest-shuffle[=<seed>]` | Randomize run order | Fixed seed reproduces the order; `--gdextest-shuffle` alone uses seed 1 |
-| `--gdextest-shard=<k>/<n>` | Run shard `k` (0-based) of `n` | Stable hash assignment — same test always lands in the same shard |
-| `--gdextest-json=<path>` | Write machine-readable results | The CLI resolves the path to an absolute path before launching Godot |
-| `--gdextest-timeout-ms=<n>` | Per-wait timeout for async tests | CLI forwards `[gdextest.test] timeout_ms` (default 30000) |
-| `--gdextest-isolate-timeout-sec=<n>` | Whole-test async budget | CLI forwards `[gdextest.test] isolate_timeout_sec` (default 60) |
-| `--gdextest-flaky-retries=<n>` | Additional attempts for `TAG_FLAKY` tests | CLI forwards `[gdextest.test] flaky_retries` (default 3) |
+| `--gdextest-run` | Run the suites, print the summary, and quit. The trigger. | off |
+| `--gdextest-list` | Print the selected tests and quit without running. Needs the trigger to be present. | off |
+| `--gdextest-filter=<spec>` | Select tests: comma-separated globs, `-` prefix excludes. Matched against `suite.name`, the suite, or the name. Case-sensitive; `*` and `?` wildcards. | all tests |
+| `--gdextest-shard=k/n` | Run shard `k` of `n`. `hash(suite) ^ (hash(name) * 2654435761)` modulo `n`, so assignment is stable across runs. | no sharding |
+| `--gdextest-shuffle[=seed]` | Shuffle with a seeded LCG and Fisher-Yates. A fixed seed reproduces the order. | declaration order |
+| `--gdextest-json=<path>` | Write the JSON results document. | none |
+| `--gdextest-timeout-ms=<n>` | Per-wait timeout for async waits. | 30000 |
+| `--gdextest-isolate-timeout-sec=<n>` | Whole-test budget for one async test. | 60 |
+| `--gdextest-flaky-retries=<n>` | Extra attempts for `TAG_FLAKY` tests. | 3 |
 
-CLI-level convenience flags (not runner options):
+The CLI always forwards the three budget flags, populated from `[gdextest.test]` in `.gdextest.toml`, so TOML values apply without a framework rebuild.
 
-| Flag | Effect | Notes |
-| --- | --- | --- |
-| `gdextest test --junit=<path>` | Also write JUnit XML | Converted from the run's JSON; `--gdextest-junit=<path>` as a pass-through works too |
-| `gdextest report <paths…> --junit=<path>` | Write merged JUnit XML | Same schema as `--junit`, over merged shards |
-| `gdextest test/list --keep-fixture` | Keep the fixture project when the run fails | Removed on a green run as usual; prints the fixture path when kept, so you can inspect or re-run it against Godot |
+## The trigger
 
-Unknown `--gdextest-*` options are not rejected by the CLI: `gdextest test` passes them
-through to the runner verbatim, so new runner flags work without a CLI update (typos are
-still caught by the runner's exit code `2`).
+A run starts only when a trigger is present:
 
-**Godot discovery:** when `--godot`, `config.godot`, the `GODOT` env var, and `godot` on
-`PATH` all miss, the CLI searches for an executable named `Godot_v*` in the project root,
-its ancestors (e.g. a sibling `godot/` checkout), and `$HOME`/common dirs. Binaries whose
-name matches the configured major.minor are preferred, so `gdextest test` usually needs
-no `--godot` at all.
+- `--gdextest-run` in Godot's arguments. The adapter checks **both** argument lists, before and after `--`.
+- The `GDX_RUN_TESTS` environment variable (any value).
 
-**Doctor** additionally checks the consumer's `extern/godot-cpp` binding version against the
-framework's supported `godot_version` (via the submodule branch/`git describe`); a mismatch
-prints a loud warning (the compile step is the final arbiter). It also verifies the
-`SConstruct` calls the framework SConscript.
+Without a trigger the extension loads, the plugin starts, and nothing runs. This is what makes the test library safe to open in a real editor session.
 
-Filter grammar (see `docs/api-reference.md` → `Filter`): `*` and `?` wildcards,
-case-sensitive, matched against `suite.name`, the suite, or the name.
+## Doctor checks
+
+`gdextest doctor` runs on every `test` invocation before the build:
+
+- Configuration validity, including zero-match source patterns (each pattern prints its match count).
+- Godot: found, executable, and its version matches the configured major.minor.
+- SCons on `PATH`.
+- The framework SConscript exists.
+- godot-cpp binding version (read from `extern/godot-cpp`'s branch or `git describe`); a mismatch prints a loud warning, and the compile step stays the final arbiter.
+- `SConstruct` wiring: whether it calls the framework SConscript. `test` reports an unwired file as an informational note (it builds through injection); bare `doctor` reports it as a failure.
+- Consumer extension files, when `[gdextest.consumer_extension]` is configured. With none configured and exactly one `.gdextension` in the project, it prints the exact TOML lines to add.
+
+Exit codes: `0` healthy, `2` a check failed.
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| `0` | All selected tests passed |
-| `1` | At least one test failed or crashed |
-| `2` | Usage error: malformed or unknown `--gdextest-*` option |
+| `0` | All selected tests passed. |
+| `1` | At least one test failed or crashed. `report` also exits `1` when any merged test failed. |
+| `2` | Usage or environment error: malformed option, failed doctor check, failed build, or unknown `--gdextest-*` option. |
 
-Exit happens via `SceneTree::quit(code)`, which propagates to the OS exit code under
-`--headless` (M0-verified: `quit(0)→0`, `quit(1)→1`, `quit(7)→7`).
-
-`2` is emitted when an option value fails to parse (e.g. `--gdextest-shard=xyz`, a
-non-numeric `--gdextest-shuffle` seed, or a shard outside `[0, n)`) or when an option
-starting with `--gdextest-` is unknown (e.g. `--gdextest-bogus`). The offending option is
-printed to stdout before exiting.
+Exit happens through `SceneTree::quit(code)`, which propagates to the process exit code under `--headless`.
 
 ## Human output
 
+Every run prints a summary line and one row per test:
+
 ```text
-== gdextest: <passed> passed, <failed> failed, <skipped> skipped ==
-[PASS] self.filter_positive_glob_matches  (0 ms)
+== gdextest: 19 passed, 1 failed, 1 skipped ==
 [PASS] string_utils.trim_strips_both_ends  (0 ms)
 [FAIL] counter.bump_increments  (0 ms)
     tests/counter_state_tests.cpp:12: expected bump() == 1
-        expected: 1
-        actual:   2
-    (test body aborted/crashed)          # only if the body threw/aborted
+  expected: 1
+  actual:   2
 [SKIP] skip_demo.requires_optional_benchmark_service  (0 ms)
     skipped: precondition not met: GDX_BENCHMARK_SERVICE is unset
+[PASS] self.flaky_test_passes_after_retries  (0 ms)  (retries: 2)
 ```
 
-Async tests (`GDEX_TEST_ASYNC`, see `api-reference.md`) appear with their wall-clock
-duration, e.g. `[PASS] async.timer_await_resumes_after_elapsed_time  (104 ms)`. A test
-whose wait never resolves is failed by the runner with a `timed out` failure line — it
-counts as `failed` and exits `1`, so a hung test can never stall a pipeline.
-
-The summary line always shows the `skipped` count. A row is `[SKIP]` (with its reason)
-when the body called `GDEX_SKIP`. Skipped tests never count toward `failed` and never
-change the exit code.
+- Failure lines carry `file:line` and the formatted message. Comparison macros print both operands beneath the expression text.
+- Async test rows show wall-clock duration, for example `[PASS] async.timer_await_resumes_after_elapsed_time  (104 ms)`.
+- A test whose wait timed out prints a `timed out` failure line and counts as failed.
+- The `(retries: n)` suffix appears when a `TAG_FLAKY` test needed extra attempts.
 
 `--gdextest-list` prints:
 
-```
+```text
 # gdextest list: 15 tests selected
 self.filter_positive_glob_matches
 string_utils.trim_strips_both_ends
@@ -159,20 +119,20 @@ string_utils.trim_strips_both_ends
 
 ## JSON output
 
-Written by `--gdextest-json=<path>`. Schema:
+`--gdextest-json=<path>` writes one document:
 
 ```json
 {
-  "totals": { "pass": 19, "fail": 0, "skip": 1, "crashed": 0 },
+  "totals": { "pass": 19, "fail": 1, "skip": 1, "crashed": 0 },
   "results": [
     {
       "suite": "counter",
       "name": "bump_increments",
-      "status": "fail",              // "pass" | "fail" | "crashed" | "skipped"
+      "status": "fail",
       "duration_ms": 0,
       "retries": 0,
       "failures": [
-        { "file": "tests/counter_state_tests.cpp", "line": 12, "message": "…" }
+        { "file": "tests/counter_state_tests.cpp", "line": 12, "message": "expected bump() == 1\n  expected: 1\n  actual:   2" }
       ]
     },
     {
@@ -188,63 +148,69 @@ Written by `--gdextest-json=<path>`. Schema:
 }
 ```
 
-- `status` is `"crashed"` when the body threw (including `GDEX_ABORT_TEST`) or the run was
-  otherwise interrupted; a crashed test also counts toward `fail`.
-- `status` is `"skipped"` when the body called `GDEX_SKIP`; the optional `reason` field
-  carries the skip message. A skipped test counts toward `totals.skip`, never `fail`.
-- An async test whose wait timed out is reported with `status` `"fail"` and a failure
-  message containing `timed out` — same schema, no special fields.
-- `totals.skip` is the number of tests skipped via `GDEX_SKIP` (0 when none).
-- `retries` is the number of additional attempts used for the test. `TAG_FLAKY` tests may
-  use up to `kDefaultFlakyRetries` (currently 3) retries; other tests report `0`.
-- Strings are JSON-escaped; control characters become `\uXXXX`.
+Field notes:
+
+- `status` is one of `pass`, `fail`, `crashed`, `skipped`.
+- `crashed` marks a body that threw an unexpected exception, or an async test that aborted. A crashed test also counts toward `fail`.
+- `skipped` marks a `GDEX_SKIP` test; the optional `reason` carries the skip message. Skips never count toward `fail`.
+- A timed-out async wait reports status `fail` with a failure message containing `timed out`. There is no special field.
+- `retries` is the number of additional attempts a `TAG_FLAKY` test used; other tests report `0`.
+- Strings are escaped per RFC 8259; control characters become `\uXXXX`.
+
+## JUnit output
+
+`--junit=<path>` (CLI-level, on `test` and `report`) converts the run's JSON into JUnit XML. GitHub Actions and other CI surfaces render JUnit natively, so failures and skips become inline annotations. Skipped tests produce `<skipped>` elements with their reason.
+
+## Parallel CI: sharding and report
+
+Run one job per shard, each writing its own JSON document:
+
+```bash
+./extern/gdextest/gdextest test --shard=0/4 --json=shard0.json
+./extern/gdextest/gdextest test --shard=3/4 --json=shard3.json
+```
+
+Shard assignment hashes `suite` and `name`, so it is stable across runs and disjoint across shards. Then merge:
+
+```bash
+./extern/gdextest/gdextest report 'shard*.json' --json=merged.json --junit=merged.xml
+```
+
+`report` accepts file paths or glob patterns, concatenates the results, and recomputes `totals`. It exits `1` when any merged test failed or crashed, so the merge step gates the pipeline too.
+
+## Environment and hygiene
+
+- **Hermetic `user://`.** The CLI wipes `build/gdextest/user-data` before every run and points `XDG_DATA_HOME` at it. Residue from a previous run cannot leak into `should not exist at start` assertions.
+- **Disposable fixture.** The fixture project is generated per run and removed afterwards. `--keep-fixture` retains it when a run fails.
+- **Cold-cache warmup.** On a fixture with no `.godot` cache, the CLI runs one no-trigger warmup pass first. Godot 4.5's first headless-editor run on a cold cache can abort during shutdown; the import completes before the abort, so the warmup makes the real run deterministic.
+- **`ldd -r` preflight.** On Linux the CLI relocates the built library and reports unresolved symbols, with each source pattern's match count, before Godot ever loads it.
 
 ## Examples
 
-Run everything, write results for CI:
+Run everything and write results for CI:
 
 ```bash
-./extern/gdextest/gdextest test --godot /path/to/Godot --json=results.json
+./extern/gdextest/gdextest test --json=results.json --junit=results.xml
 ```
 
-The command above performs config initialization and doctor preflight automatically.
-For direct Godot invocation, use:
+Drive Godot directly against a kept fixture:
 
 ```bash
-godot --headless --editor --path testdata/project -- \
+godot --headless --editor --path build/gdextest/project -- \
     --gdextest-run --gdextest-json=results.json
 ```
 
-One suite, randomized with a reproducible seed:
+One suite, reproducible random order:
 
 ```bash
-godot --headless --editor --path testdata/project -- \
+godot --headless --editor --path build/gdextest/project -- \
     --gdextest-run --gdextest-filter=counter.* --gdextest-shuffle=42
 ```
 
-Parallel CI (4 shards, job 0):
+Environment-variable trigger, when you cannot touch the command line:
 
 ```bash
-godot --headless --editor --path testdata/project -- \
-    --gdextest-run --gdextest-shard=0/4 --gdextest-json=shard0.json
+GDX_RUN_TESTS=1 godot --headless --editor --path build/gdextest/project
 ```
 
-Environment-variable trigger (useful when you can't touch the command line):
-
-```bash
-GDX_RUN_TESTS=1 godot --headless --editor --path testdata/project
-```
-
-The repo's `./run_tests.sh` wraps build + wiring + the standard invocation. The CLI keeps
-`user://` hermetic itself: `test` and `list` wipe `build/gdextest/user-data` before every
-run and point `XDG_DATA_HOME` at it, so residue from a previous run never leaks into
-"should not exist at start" assertions.
-
-Because the fixture is recreated fresh for every run (it is removed afterwards, like the
-temporary injected `SConstruct`), `test` and `list` always run a single no-trigger warmup
-pass first: Godot 4.5's first headless-editor run on a cold project aborts during shutdown
-(`testing/notes.md` §5 — the import completes before the abort, so the cache is valid),
-and the warmup makes the real run deterministic instead of failing with a backtrace.
-Pass `--keep-fixture` to retain the fixture when a run fails (it is still removed on a
-green run), so you can inspect the generated project or re-run Godot against it while
-debugging.
+This repository's `./run_tests.sh` wraps the standard invocation for its own suites.

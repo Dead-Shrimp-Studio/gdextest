@@ -1,21 +1,19 @@
 # Consumer guide
 
-How another GDExtension repo integrates gdextest. The reference consumer uses the same
-reusable build and generated-fixture path described below.
+How another GDExtension repository integrates gdextest, from the first submodule to a parallel CI run.
 
-## Model
+## The model
 
-There is no separate runner binary. The framework is compiled **into your test build**: a
-test-only shared object containing the framework core, an entry point, your per-extension
-adapter, and your suites. A fixture Godot project loads that `.so`; a headless run executes
-the suites and exits with pass/fail. Release builds are untouched.
+There is no separate runner binary. The framework compiles **into your test build**: one test-only shared object containing the framework core, an entry point, the adapter, and your suites. A generated fixture Godot project loads that object. A headless run executes the suites and exits with pass/fail. Release builds are untouched.
 
-```
+```text
 your repo/
-  extern/gdextest/          # this framework (git submodule)
-  src/…                     # your extension sources (untouched by the framework)
-  tests/                    # your GDEX_TEST suites
-  build/gdextest/project/    # ephemeral fixture (generated per run, removed after)
+  extern/gdextest/             # this framework (git submodule)
+  src/...                      # your extension sources (untouched)
+  tests/                       # your GDEX_TEST suites
+  .gdextest.toml               # created on the first `gdextest test`
+  build/gdextest/project/      # ephemeral fixture (generated per run, removed after)
+  bin/                         # the built test library
 ```
 
 ## 1. Pull in the framework
@@ -25,62 +23,49 @@ git submodule add <this-repo-url> extern/gdextest
 git submodule update --init
 ```
 
-The CLI is the `gdextest` wrapper script inside the submodule — run it from your repo root
-as `./extern/gdextest/gdextest <command>`. All commands in this guide use that path.
+Every command in this guide runs from your repository root as `./extern/gdextest/gdextest <command>`.
 
-Your build already vendors godot-cpp (every GDExtension does); the framework reuses your
-`extern/godot-cpp` and expects a 4.5 binding set — it uses `EditorPlugin`,
-`SceneTree::quit`, `OS::get_cmdline_args/get_cmdline_user_args`, and the 4.5
-`GDExtensionBinding::InitObject` API. (The submodule's nested godot-cpp is only used by
-the framework's own self-tests, so a plain `--init` is enough.)
+Your build already vendors `godot-cpp`; the framework reuses it. The framework expects a 4.5 binding set. The submodule's nested `godot-cpp` copy is used only by the framework's own self-tests, so a plain `git submodule update --init` is enough.
 
 ## 2. Include layout
 
-The framework follows the classic C++ library layout, so the include path stays clean and
-predictable no matter where the submodule lands:
+The framework uses the classic library layout:
 
-```
+```text
 extern/gdextest/
-  include/gdextest/     # public headers — the only files suites #include
-  src/framework/        # implementation (.cpp) — compiled by the SConscript, never included
-  SConscript            # reusable build integration (adds include/ to CPPPATH)
+  include/gdextest/     # public headers, the only files suites include
+  src/framework/        # implementation, compiled by the SConscript
+  SConscript            # reusable build wiring
 ```
 
-All public headers live under `include/gdextest/`, so a single `-I extern/gdextest/include`
-entry resolves every framework include as a namespaced `gdextest/...` path — no digging
-into the framework's source tree, no relative `../extern/gdextest/...` includes from your
-suites:
+All public headers live under `include/gdextest/`, so one include path resolves every framework include as a namespaced `gdextest/...` path:
 
 ```cpp
 #include "gdextest/assert.h"
 #include "gdextest/registry.h"
 ```
 
-The reusable `SConscript` appends `include/` to the test target's `CPPPATH`, so the paths
-resolve automatically. Only if you compile the framework sources yourself (bypassing the
-SConscript) do you need to add `-I extern/gdextest/include` (or
-`/I extern\gdextest\include` on MSVC) to your test target.
+The reusable SConscript appends `include/` to the test target's `CPPPATH`. Only if you compile the framework sources yourself (bypassing the SConscript) do you add `-I extern/gdextest/include` (or `/I extern\gdextest\include` on MSVC).
 
-| Header | Purpose | Included by |
-| --- | --- | --- |
-| `gdextest/assert.h` | `GDEX_EXPECT_*` assertions, `GDEX_FAIL`, `GDEX_ABORT_TEST`, `GDEX_SKIP` | every suite |
-| `gdextest/registry.h` | `GDEX_TEST` / `GDEX_TEST_T` / `GDEX_TEST_ASYNC*` registration, `TestRegistry`, `Filter` | every suite |
-| `gdextest/engine.h` | live-engine accessors `gdextest::engine_tree(ctx)` / `engine_node(ctx)` — pulls in godot-cpp | engine-facing suites (with `TAG_INTEGRATION`) |
-| `gdextest/async.h` | async-test coroutine machinery, `ctx.await_frames` / `ctx.await_timer_ms` | async suites (pulled in by `registry.h`) |
-| `gdextest/context.h` | `TestContext`, `Failure`, teardowns, `track_object` / `track_ref` | advanced suites |
-| `gdextest/config.h` | `Tag` enum, `kDefault*` budgets — the customization point | hosts that tune budgets |
-| `gdextest/host.h` | `gdextest::configure_host({&start, &stop})` | extension init paths (§6) |
-| `gdextest/runner.h` | runner entry points (`run_all_and_quit`, `run_sub_*`) — engine-boundary | self-tests, custom adapters |
-| `gdextest/adapter.h` | `gdextest_adapter::maybe_run(godot::Node*)` contract | custom adapters (§7) |
+| Header | Purpose |
+| --- | --- |
+| `gdextest/assert.h` | All assertion macros, `GDEX_FAIL*`, `GDEX_ABORT_TEST`, `GDEX_SKIP`. |
+| `gdextest/registry.h` | `GDEX_TEST*` registration, `TestRegistry`, `Filter`. Pulls in `async.h`. |
+| `gdextest/engine.h` | `engine_node(ctx)` / `engine_tree(ctx)` for live-engine tests. |
+| `gdextest/signals.h` | `SignalMonitor` and `ctx.signals()`. |
+| `gdextest/strings.h` | `to_std_string` overloads for mixed string assertions. |
+| `gdextest/async.h` | Async-test coroutine machinery and the awaitables. |
+| `gdextest/context.h` | `TestContext`, `Failure`, teardowns, resource tracking. |
+| `gdextest/config.h` | Tag enum and budget defaults; the customization point. |
+| `gdextest/host.h` | `configure_host` startup/shutdown callbacks. |
+| `gdextest/runner.h` | Runner entry points; for self-tests and custom adapters. |
+| `gdextest/adapter.h` | The `ExtensionAdapter` interface and registry. |
 
-Suite authors normally only touch `assert.h` and `registry.h`. The implementation files in
-`src/framework/` are compiled into your test library by the SConscript; nothing in
-`include/` is a copy or a symlink, so there is no second source of truth.
+Suite authors normally need only `assert.h` and `registry.h`. The SConscript compiles the test target with C++20 and exceptions enabled.
 
 ## 3. Write suites
 
-Plain C++ files using the macros — see [api-reference.md](api-reference.md) for the full
-surface:
+Plain C++ files with the macros. See [Writing tests](writing-tests.md) for the full surface:
 
 ```cpp
 #include "gdextest/assert.h"
@@ -90,78 +75,32 @@ surface:
 GDEX_TEST(math_utils, clamp_keeps_value_in_range) {
     GDEX_EXPECT_EQ(clamp(5, 0, 10), 5);
     GDEX_EXPECT_EQ(clamp(-1, 0, 10), 0);
-    GDEX_EXPECT_EQ(clamp(42, 0, 10), 10);
 }
 ```
 
-Engine-facing tests run inside a real Godot process. Singletons, your registered classes,
-and the live SceneTree are all reachable from a test body that opts in: tag the test
-TAG_INTEGRATION and include `gdextest/engine.h`. Then gdextest::engine_tree(ctx) is the live
-SceneTree and gdextest::engine_node(ctx) is the host Node. Pure-logic suites (no tag, no
-engine.h) get null from both — the engine is opt-in:
+For engine-facing tests, tag them and include `engine.h`. For frame-dependent behavior, use `GDEX_TEST_ASYNC`. See [Engine integration](engine-integration.md) and [Async tests](async-tests.md).
 
-```cpp
-#include "gdextest/engine.h"
-
-GDEX_TEST_T(my_extension, class_is_registered, TAG_INTEGRATION) {
-    GDEX_EXPECT_NE(godot::OS::get_singleton()->get_processor_count(), 0);
-    godot::SceneTree *tree = gdextest::engine_tree(ctx);   // live engine tree
-    GDEX_EXPECT_NOT_NULL(static_cast<void *>(tree));
-}
-```
-
-**Async / multi-frame tests** (needs C++20 — the reusable `SConscript` compiles the test
-target with `-std=c++20`). Register with `GDEX_TEST_ASYNC` and `co_await` engine waits; the
-runner suspends and resumes the body across `process_frame` ticks:
-
-```cpp
-GDEX_TEST_ASYNC(my_extension, signal_settles_across_frames) {
-    co_await ctx.await_frames(2);            // let the engine advance 2 frames
-    GDEX_EXPECT(my_service->is_settled());
-    co_return;
-}
-```
-
-Every wait has a timeout (default 30 s per wait, 60 s per test) so a never-resolving
-await fails the test instead of hanging CI. See `api-reference.md` → Async tests.
+**The code under test must be in the test build.** Everything a suite calls must compile into the test library (via `[gdextest.tests] sources`) or load through `[gdextest.consumer_extension]`. Otherwise the library carries undefined symbols; the CLI catches them with `ldd -r` right after the build.
 
 ## 4. Run the quickstart
-
-Once the framework submodule and a first suite are present, run the complete flow with one
-command:
 
 ```bash
 ./extern/gdextest/gdextest test --json=results.json
 ```
 
-`test` creates `.gdextest.toml` when it is missing, preserves it when it already exists,
-and runs the doctor checks on every invocation before the build. The checks cover the
-configuration, framework SConscript, Godot version, SCons, test source discovery, and any
-configured consumer extension files. A failed check returns `2` before SCons or Godot is
-started. Use `gdextest init --ci` when you want to generate the config and CI workflow
-explicitly, or `gdextest doctor` to inspect the environment without running a build.
-Godot is auto-discovered, so no `--godot` is needed.
+`test` creates `.gdextest.toml` when it is missing, runs the doctor checks, builds the library (through a temporary injected `SConstruct` when yours is unwired), generates and warms the fixture, launches Godot headless, and removes the fixture afterwards. Exit `0` on green, `1` on failures. Godot is auto-discovered, so no `--godot` is needed when a binary is on `PATH`, in the project tree, or in `$HOME`.
 
-After the preflight passes, the command builds the test-only library, generates the
-fixture, warms the fixture cache, launches Godot headlessly, and returns `0` for a passing
-run or `1` for test failures. Relative JSON paths are resolved against the consumer
-repository's working directory. The fixture is disposable intermediate state — it is
-removed after the run (like the temporary injected `SConstruct`), so the only things left
-behind are the built test library and your results files. Pass `--keep-fixture` to retain
-the fixture when a run fails (still removed on success), e.g. to inspect or re-run the
-generated project while debugging.
+Useful variants:
 
-**No `SConstruct` wiring is required.** If your build file doesn't call the framework
-SConscript, `test` builds through a temporary injected copy (`SConstruct.gdextest`,
-removed afterwards) — your build file is never modified. `gdextest scaffold --apply` makes
-that wiring permanent (backing up `SConstruct` first) and generates `testsupport/entry.cpp`
-from your TOML values — only needed for a custom entry point / plugin class; everything
-else is covered by `gdextest test`.
+```bash
+./extern/gdextest/gdextest doctor                        # environment checks only
+./extern/gdextest/gdextest test --keep-fixture           # keep the fixture when the run fails
+./extern/gdextest/gdextest scaffold --apply              # make the SConstruct wiring permanent
+```
 
 ## 5. Configure the consumer contract
 
-The recommended configuration is structured by responsibility. Existing flat keys remain
-supported for compatibility, but new projects should use this form:
+`.gdextest.toml` is the single source of truth. The structured form:
 
 ```toml
 [gdextest]
@@ -175,83 +114,57 @@ exclude = ["tests/helpers/**"]
 [gdextest.test]
 timeout_ms = 30000          # per async wait
 isolate_timeout_sec = 60    # whole-test async budget
-flaky_retries = 3           # additional attempts for TAG_FLAKY tests
+flaky_retries = 3           # extra attempts for TAG_FLAKY tests
 
 [gdextest.host]
-mode = "editor" # editor or runtime
+mode = "editor"             # editor or runtime
 entry_symbol = "gdextest_library_init"
-plugin_class = "GdextestPlugin" # native EditorPlugin registered by your entry
-bootstrap = "tests/bootstrap.cpp" # optional
+plugin_class = "GdextestPlugin"
 
 [gdextest.fixture]
 directory = "build/gdextest/project"
 project_name = "my extension tests"
-native_extensions = []
 assets = ["tests/fixtures/**"]
-scan_timeout_ms = 20000     # how long the editor's first filesystem scan may take
+scan_timeout_ms = 20000
 
 [gdextest.output]
 directory = "bin"
 name = "libmy_extension_tests"
 
 [gdextest.build]
-args = [] # extra scons args, e.g. ["platform=windows", "target=editor", "arch=x86_64"]
+args = []                   # extra scons args, e.g. ["target=editor"]
 ```
 
-The `[gdextest.test]` budgets are forwarded to the runner as `--gdextest-*` flags on every
-CLI run — CI on slow machines or under ASan can raise them without rebuilding the
-framework. `scan_timeout_ms` bounds the editor filesystem scan in the generated fixture
-host (raise it for large repos / loaded CI). Arrays may span multiple lines; strings are
-double-quoted and must be terminated — a missing closing quote is a parse error, and a
-pattern that matches no files fails the build with the offending pattern named.
+Every key is documented in [Configuration reference](configuration.md). Points worth knowing:
 
-The `test` preflight validates the configuration, framework path, Godot version, SCons,
-discovered test sources, and any configured consumer extension files on every run. Run
-`gdextest doctor --godot /path/to/Godot` directly when you want these diagnostics without
-a build. `gdextest test` and `gdextest list` use the same configuration, so source discovery
-and fixture settings cannot silently diverge.
+- The `[gdextest.test]` budgets are forwarded to the runner on every CLI run. CI can raise them without rebuilding the framework.
+- `scan_timeout_ms` bounds the editor's first filesystem scan in the generated fixture host.
+- Source patterns are repo-root relative and must match at least one file. Vendored C dependencies compile in too; add a `**/*.c` pattern when needed.
+- `host.mode = "editor"` generates the scan-safe editor-plugin fixture and runs `--headless --editor`. `host.mode = "runtime"` generates an autoload fixture and runs plain `--headless`, appropriate for runtime-only extensions.
 
-The reusable `SConscript` loads this file itself, so the TOML is the single source of
-truth for every flow: `gdextest test` sets a handful of `gdextest_*` environment variables
-for the build (sources, host mode, bootstrap), and the SConscript treats them as overrides
-layered on top of the TOML values. A value you set in the TOML is never silently ignored
-by the build.
+The SConscript loads the TOML itself, so a bare `scons tests=true` and the CLI flow build the same thing.
 
-`host.mode = "editor"` generates the scan-safe `EditorPlugin` fixture and runs Godot with
-`--headless --editor`. `host.mode = "runtime"` generates an autoload fixture and runs plain
-`--headless`, which is appropriate for runtime-only extensions.
+## 6. Load your real extension
 
-### Load your real extension alongside the tests
-
-By default the code under test is whatever compiles into the test library (your
-`[gdextest.tests]` sources). If a suite needs the *actual extension* loaded in the fixture
-— registered classes, editor plugins, or engine behavior only the real `.so` exhibits —
-point at it with `consumer_extension`:
+By default the code under test is whatever compiles into the test library. When a suite needs the actual extension loaded in the fixture, registered classes, editor plugins, or behavior only the real `.so` exhibits, point at it:
 
 ```toml
 [gdextest.consumer_extension]
 library = "addons/my_extension/bin/libmy_extension.linux.editor.x86_64.so"
 ```
 
-Only one of the two files needs to be configured; the other is derived automatically:
+Only one of the two files needs configuring:
 
-- **`library` set, `manifest` omitted** — the framework walks up from the library and uses
-the unique `.gdextension` it finds (covers `addons/<name>/bin/` and `addons/<name>/`
-layouts).
-- **`manifest` set, `library` omitted** — the manifest's `[libraries]` table is read and
-the first entry that resolves on disk is used.
+- **`library` set, `manifest` omitted** — the framework walks up from the library and uses the unique `.gdextension` it finds. Covers `addons/<name>/bin/` and `addons/<name>/` layouts.
+- **`manifest` set, `library` omitted** — the manifest's `[libraries]` table is read and the first entry that resolves on disk is used.
 
-If the search is ambiguous (several `.gdextension` files near the library), set both keys
-explicitly. When nothing is configured but your project contains exactly one
-`.gdextension`, `gdextest doctor` prints the exact TOML line to add. The fixture stages the
-extension under `addons/consumer/` and rewrites the manifest's `[libraries]` paths to
-point at that copy, so a real addon manifest works as-is.
+Set both keys when the search is ambiguous. When nothing is configured and the project contains exactly one `.gdextension`, `gdextest doctor` prints the exact TOML lines to add.
 
-## 6. Customize startup only when needed
+The fixture stages the extension under `addons/consumer/` and rewrites the manifest's `[libraries]` paths to that copy. Your real addon manifest works as-is.
 
-If your extension needs services bootstrapped before the tests run, configure the host from
-your extension's initialization code. Include `gdextest/host.h` and register ordinary
-function pointers; no weak symbols or platform-specific linker behavior is required:
+## 7. Customize startup
+
+When the extension needs services bootstrapped before the tests run, register host callbacks from your initialization code:
 
 ```cpp
 #include "gdextest/host.h"
@@ -264,67 +177,85 @@ void configure_gdextest_host() {
 }
 ```
 
-Call `configure_gdextest_host()` from your extension's normal initialization path, after
-Godot is initialized and before the test host is created. The default configuration is a
-no-op, so consumers that need no setup provide nothing. The callback API is portable across
-GCC, Clang, and MSVC; a custom `adapter` or `entry` remains available only when the default
-host lifecycle itself is insufficient.
+- `bootstrap` runs on the main thread immediately before a triggered test run.
+- `shutdown` runs right after the results are written.
+- An empty `HostConfig` restores the no-op default.
+- The callbacks are plain function pointers, so the API behaves the same on GCC, Clang, and MSVC.
 
-## 7. Write a custom adapter (optional)
+Compile the file that calls `configure_gdextest_host()` into the test build. Either list it in `[gdextest.tests] sources`, or set `[gdextest.host] bootstrap = "path/to/file.cpp"` to add it explicitly. Call `configure_gdextest_host()` from your extension's normal initialization path, after Godot is initialized and before the host node is created.
 
-If the default host is not enough, `adapter.cpp` is the **only file that should know your
-extension's setup**. The contract lives in [`gdextest/adapter.h`](../include/gdextest/adapter.h)
-— one declaration (`gdextest_adapter::maybe_run(godot::Node*)`) — so a custom adapter with
-a wrong signature fails at compile time, not link time. Model it on
-[`src/support/adapter.cpp`](../src/support/adapter.cpp) — ~40 lines by design:
+## 8. Hook the framework lifecycle with adapters
+
+For hooks beyond a single bootstrap/shutdown pair, implement an `ExtensionAdapter` and register it:
 
 ```cpp
-#ifdef GDEXTEST_ENABLED   // test build only
-
-#include "gdextest/adapter.h"   // declares gdextest_adapter::maybe_run
-
-#include <godot_cpp/classes/os.hpp>
-#include <godot_cpp/classes/scene_tree.hpp>
-
-namespace gdextest { void run_all_and_quit(void *tree_node); }
+// testsupport/adapters.cpp — any file compiled into the test build
+#include "gdextest/adapter.h"
+#include "my_extension/services.h"
 
 namespace {
-bool test_trigger_present() {
-    godot::OS *os = godot::OS::get_singleton();
-    if (!os) return false;
-    if (os->has_environment("GDX_RUN_TESTS")) return true;
-    // Check BOTH lists — args before "--" and after "--" (notes.md §3.2).
-    return os->get_cmdline_args().has("--gdextest-run") ||
-           os->get_cmdline_user_args().has("--gdextest-run");
-}
 
-void bootstrap() {
-    // Start only the services your code under test needs.
-    // (This repo has none yet; real hosts list theirs here.)
-}
+struct ServicesAdapter : public gdextest::ExtensionAdapter {
+    void on_initialize(godot::ModuleInitializationLevel level) override {
+        // Fired for each GDExtension initialization level.
+        if (level == godot::MODULE_INITIALIZATION_LEVEL_SCENE) {
+            my_extension::start_services();
+        }
+    }
+
+    void on_uninitialize(godot::ModuleInitializationLevel level) override {
+        // Fired in reverse registration order (LIFO).
+        if (level == godot::MODULE_INITIALIZATION_LEVEL_SCENE) {
+            my_extension::stop_services();
+        }
+    }
+
+    void on_ready(godot::Node *tree_node) override {
+        // Fired once, right before a triggered run starts.
+    }
+};
+
 }  // namespace
 
-namespace my_adapter {
-void maybe_run(godot::Node *tree_node) {
-    if (!test_trigger_present()) return;
-    bootstrap();
-    gdextest::run_all_and_quit(tree_node);
-}
-}  // namespace my_adapter
-
-#endif // GDEXTEST_ENABLED
+GDEX_REGISTER_ADAPTER(ServicesAdapter)
 ```
 
-## 8. Add a custom entry point (optional)
+Dispatch points:
 
-Run `gdextest scaffold --apply` to generate `testsupport/entry.cpp` from a template,
-using the `plugin_class` and `entry_symbol` from your TOML — no manual copy-and-rename.
-(`testsupport/` sits outside the default `tests/**/*.cpp` suite glob so the entry compiles
-exactly once.)
-The generated file registers an `EditorPlugin` whose `_ready()` calls the framework
-adapter. The generated fixture wrapper instantiates exactly the class named by
-`[gdextest.host] plugin_class`, so keep the two in sync. Use the godot-cpp 4.5 entry API
-exactly (the pre-4.5 form does not compile):
+| Callback | When it fires |
+| --- | --- |
+| `on_initialize` | Each initialization level, in registration order. |
+| `on_uninitialize` | Each uninitialization level, in reverse order. |
+| `on_ready` | Once per triggered run, with the host node, before `bootstrap`. |
+
+Multiple adapters are supported. `GDEX_REGISTER_ADAPTER` works from any translation unit compiled into the test build. See [Architecture](architecture.md#the-adapter-system) for the dispatch flow.
+
+### Replacing the reference adapter entirely
+
+The reference adapter (`src/support/adapter.cpp`) owns trigger detection and run start. Replace it through the SConscript export when the default host lifecycle is not enough:
+
+```python
+lib = env.SConscript(
+    "extern/gdextest/SConscript",
+    variant_dir="build/gdextest", duplicate=0,
+    exports={"env": env, "gdextest": {
+        "adapter": "testsupport/adapter.cpp",   # your trigger + startup
+        # "entry": "testsupport/entry.cpp",      # optional custom entry too
+    }},
+)
+```
+
+Your adapter must implement `void maybe_run(godot::Node*)` in namespace `gdextest_adapter`. A wrong signature fails at compile time, not at link time.
+
+## 9. Add a custom entry point (optional)
+
+The default entry point registers the editor plugin shell and `SignalMonitor`. Run `gdextest scaffold --apply` to generate `testsupport/entry.cpp` from a template when you need your own:
+
+- The template uses the `plugin_class` and `entry_symbol` from your TOML. No manual copy-and-rename.
+- `testsupport/` sits outside the default `tests/**/*.cpp` suite glob, so the entry compiles exactly once.
+- The generated fixture wrapper instantiates exactly the class named by `[gdextest.host] plugin_class`, so keep the two in sync.
+
+Use the godot-cpp 4.5 entry API exactly; the pre-4.5 form does not compile:
 
 ```cpp
 extern "C" {
@@ -341,14 +272,13 @@ GDExtensionBool GDE_EXPORT my_library_init(
 }
 ```
 
-The `.gdextension` manifest in your fixture project must set `entry_symbol` to this
-function's name.
+The generated `.gdextension` manifest in the fixture sets `entry_symbol` to the function named by `[gdextest.host] entry_symbol`.
 
-## 9. Create a custom fixture project (optional)
+## 10. Create a custom fixture project (optional)
 
-Copy [`testdata/project/`](../testdata/project/) and adapt. Three pieces:
+The generated fixture covers every normal flow. To hand-roll one, copy `testdata/project/` from the framework repository and adapt three pieces.
 
-**`project.godot`** — registers the extension and enables the plugin:
+**`project.godot`** — register the extension and enable the plugin:
 
 ```ini
 [native_extensions]
@@ -358,9 +288,7 @@ paths=["res://mytest.gdextension"]
 enabled=PackedStringArray("res://addons/gdextest/plugin.cfg")
 ```
 
-**`mytest.gdextension`** — points at your test `.so`. One `linux.debug.x86_64` entry is
-enough; editor builds carry the `debug` feature tag, so it matches `--headless --editor`
-runs too:
+**`mytest.gdextension`** — point at your test library. One `linux.debug.x86_64` entry is enough; editor builds carry the `debug` feature tag, so it matches `--headless --editor` runs too:
 
 ```ini
 [configuration]
@@ -371,10 +299,7 @@ compatibility_minimum = "4.5"
 linux.debug.x86_64 = "res://bin/libmytest-test.linux.template_debug.x86_64.so"
 ```
 
-**`addons/gdextest/plugin.cfg` + `plugin.gd`** — the plugin script must `extend
-EditorPlugin` directly (extending your native plugin class is rejected by the plugin
-manager). It instantiates the native plugin once the editor filesystem scan has finished —
-quitting earlier races the scan thread and can crash the editor (`testing/notes.md` §5):
+**`addons/gdextest/plugin.cfg` + `plugin.gd`** — the script must extend `EditorPlugin` directly (extending your native plugin class is rejected by the plugin manager). It instantiates the native plugin once the editor filesystem scan has finished:
 
 ```gdscript
 @tool
@@ -399,81 +324,51 @@ func _on_frame() -> void:
 func _exit_tree() -> void:
     if get_tree() and get_tree().process_frame.is_connected(_on_frame):
         get_tree().process_frame.disconnect(_on_frame)
-    if test_plugin:
-        remove_child(test_plugin)
-        test_plugin.queue_free()
-        test_plugin = null
 ```
 
-## 10. Run in CI
+The scan wait is mandatory: quitting during the first scan races the scan thread and can crash the editor. The native plugin owns the run and requests process shutdown itself; do not free it during editor teardown.
 
-```bash
-./extern/gdextest/gdextest test --json=results.json --junit=results.xml
+## 11. Run in CI
+
+### Single job
+
+```yaml
+- name: Install SCons
+  run: python3 -m pip install scons
+- name: Download Godot 4.5
+  run: |
+    curl -fsSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.5-stable/Godot_v4.5-stable_linux.x86_64.zip
+    unzip -o godot.zip
+    chmod +x Godot_v4.5-stable_linux.x86_64
+- name: Run gdextest
+  run: ./extern/gdextest/gdextest test --godot "$GITHUB_WORKSPACE/Godot_v4.5-stable_linux.x86_64" --json=results.json --junit=results.xml
 ```
 
-Exit code `0` = green, `1` = red — map it straight to your pipeline. `--junit` converts the
-run's JSON to JUnit XML, which GitHub Actions and other CI surfaces render as inline
-annotations. For parallel CI use `--gdextest-shard=k/n` (stable assignment, disjoint
-shards) per job, then merge the shard documents:
+The exit code gates the job. The JUnit file surfaces failures and skips as inline annotations.
 
-```bash
-./extern/gdextest/gdextest report 'shard*.json' --json=merged.json --junit=merged.xml
+`gdextest init --ci` writes this workflow for you.
+
+### Parallel jobs
+
+One job per shard, then a merge job:
+
+```yaml
+- name: Run shard 0/4
+  run: ./extern/gdextest/gdextest test --godot "$GODOT" --shard=0/4 --json=shard0.json
+# ... shards 1-3 ...
+- name: Merge shard results
+  run: ./extern/gdextest/gdextest report 'shard*.json' --json=merged.json --junit=merged.xml
 ```
 
-`report` exits `1` when any merged test failed or crashed. `user://` is kept hermetic by the
-CLI itself (it wipes `build/gdextest/user-data` before every run). See
-[cli.md](cli.md) for the full flag reference.
+`report` exits `1` when any merged test failed, so the merge job gates the pipeline.
 
-## Troubleshooting
+### Hermeticity
 
-- **`undefined symbol: ...` (e.g. a mangled `_ZN…` name) even though the
-  implementation is listed under `[gdextest.tests] sources`:** the pattern
-  probably never matched anything. Check three things:
-  1. **The TOML parses.** A missing closing quote —
-     `sources = ["tests/**/*.cpp", "src/**/*.cpp]` — is rejected with a
-     file:line error; older framework versions silently turned it into a
-     literal pattern (quote included) that matched no files, so only the
-     suites compiled and the extension symbols stayed undefined.
-  2. **Patterns are repo-root-relative.** `src/**/*.cpp` does not reach
-     sources in a subdirectory (e.g. `gcs-test-project/src/`); spell the path
-     from the repository root. Vendored C dependencies (e.g. md4c) compile in
-     too — add a `**/*.c` pattern (`.c`, `.cpp`, `.cc`, and `.cxx` are all
-     accepted; a `*.cpp` glob does not match `.c` files).
-  3. **`gdextest doctor` shows what actually matched** — every pattern is
-     printed with its file count (`test sources: 2 (tests/**/*.cpp -> 1,
-     src/**/*.cpp -> 0)`), and a zero-match pattern fails the doctor and the
-     build before Godot runs. The undefined-symbol error itself also lists
-     each pattern with its match count.
-- **`Two environments with different actions were specified for the same
-  target: src/….os`:** your own SConstruct compiles the same sources the test
-  library compiles (e.g. `sources` includes `src/**/*.cpp` while your
-  extension build compiles `src/` in place, objects beside sources). Older
-  framework versions let SCons derive the test objects' paths implicitly and
-  collide with the host's; the test build now compiles every object under
-  `build/gdextest/obj/…`, mirroring the source layout — update the
-  `extern/gdextest` submodule to pick this up.
-- **Config arrays may span lines** (`sources = [` with one entry per line);
-  older framework versions silently mangled that into a garbage value. '#' is
-  a comment only outside quoted strings.
-- **Editor hangs on `--headless --editor`:** the run isn't triggering — no `--gdextest-run`
-  / `GDX_RUN_TESTS`, or your adapter isn't being called. Check the plugin is enabled in
-  `project.godot` and the `.gdextension` entry symbol matches your `init` function.
-- **Editor crashes on shutdown:** the run happened before the filesystem scan finished —
-  keep the `is_scanning()` deferral in `plugin.gd`.
-- **`Script inherits from native type … can't be assigned to EditorPlugin`:** the plugin
-  script must extend `EditorPlugin` directly, not your native plugin class.
-- **Link errors with `-fno-exceptions`:** the reusable `SConscript` adds `-fexceptions`
-  to the test target automatically, so this only applies if you compile the framework
-  sources yourself (bypassing the SConscript) — then add `-fexceptions` to the test
-  target's `CXXFLAGS`.
-- **Godot errors on a library/manifest name you no longer use** (e.g. an old
-  `[gdextest.output] name`): the fixture is now recreated fresh for every run and removed
-afterwards, so stale `.gdextension` / `.so` files from an older config can no longer
-linger (regeneration also removes stale files defensively). Run `gdextest clean` to clear
-the remaining build output.
-- **Test build fails to link with `cannot find -lgodot-cpp...`:** your `SConstruct` sets
-  `CPPPATH` / `LIBPATH` with root-relative strings (e.g. `extern/godot-cpp/bin`). The
-  framework SConscript rebases those to your project root automatically, so this is
-  normally a non-issue — but if you compile the framework sources yourself (bypassing
-  the SConscript), anchor the paths with `#` (`#extern/godot-cpp/bin`, `#src`, …) — the
-  godot-cpp convention — so the build resolves them from any directory.
+The CLI keeps `user://` hermetic: it wipes `build/gdextest/user-data` before every run and points `XDG_DATA_HOME` there. No extra CI setup is needed.
+
+## Where to go from here
+
+- [Configuration reference](configuration.md) — every key and default.
+- [CLI reference](cli.md) — every command, flag, and output format.
+- [Troubleshooting](troubleshooting.md) — when something goes red.
+- [Architecture](architecture.md) — how the framework works inside.

@@ -1,150 +1,137 @@
 # Architecture
 
-How gdextest is put together, and why.
+This page explains how gdextest is built and why. Read it when you want to change the framework, write a custom adapter or entry point, or understand what happens during a run.
 
-## Goal
+## Design goals
 
-Other GDExtension developers should be able to pull the framework into their own repo,
-write tests in C++, and get pass/fail from a headless Godot run — without a separate runner
-binary or a second build system. Everything runs *inside* the extension's own shared
-object, in a real (headless) Godot process.
+- **One command, one signal.** A consumer runs `gdextest test` and reads an exit code. No runner binary, no second build system, no output parsing to decide pass/fail.
+- **Tests run inside the engine.** Engine behavior (singletons, scene tree, signals) is testable directly, because the suites execute in the engine's own process and thread.
+- **No footprint in release.** The framework, the entry point, and the suites compile only when `GDEXTEST_ENABLED` is defined. Release builds never include them.
+- **Simple to adopt.** The framework rides in as a submodule, reuses the consumer's `godot-cpp`, and works without modifying the consumer's `SConstruct`.
 
-## The execution model in one paragraph
+## The execution model
 
-Suites register themselves in a static registry when the test `.so` is loaded. The fixture
-Godot project enables an `EditorPlugin` that, once the editor is up (and the filesystem
-scan has finished), calls the adapter. The adapter detects a trigger (`GDX_RUN_TESTS` env
-var or `--gdextest-run`), bootstraps the extension's services, and hands the live
-`SceneTree` to the runner. The runner parses `--gdextest-*` flags, selects tests, and runs
-them — sync bodies inline, async bodies through a `process_frame` pump that
-suspends and resumes coroutines across frames — then prints results and calls
-`SceneTree::quit(code)`; the process exits with that code. That is the entire contract.
+Suites register themselves in a static registry when the test shared object loads. The fixture Godot project enables an editor plugin that instantiates a native host node. The adapter checks for a run trigger, bootstraps host services, and hands the live tree node to the runner. The runner parses the `--gdextest-*` options, selects tests, runs them (sync bodies inline, async bodies through a frame pump), prints results, and quits the engine with a status code.
 
-```
-+-----------------+      +----------------------+      +------------------+
-|  test suites    | ---> |  framework core      | ---> |  runner          |
-|  (host C++)     |      |  registry/asserts    |      |  (engine-facing) |
-+-----------------+      +----------------------+      +------------------+
+```text
++----------------+      +--------------------+      +------------------+
+|  test suites   | ---> |  framework core    | ---> |  runner          |
+|  (your C++)    |      |  registry/asserts  |      |  (engine-facing) |
++----------------+      +--------------------+      +------------------+
                                                              ^
-                                             adapter calls run_all_and_quit(tree_node)
+                                        adapter calls run_all_and_quit(node)
                                                              |
-+-----------------+      +----------------------+      +------------------+
-|  godot binary   | <--- |  fixture project     | <--- |  adapter + entry |
-|  --headless     |      |  (plugin enables)    |      |  (host files)    |
-+-----------------+      +----------------------+      +------------------+
++----------------+      +--------------------+      +------------------+
+|  godot binary  | <--- |  fixture project   | <--- |  adapter + entry |
+|  --headless    |      |  (plugin enables)  |      |  (framework src) |
++----------------+      +--------------------+      +------------------+
 ```
 
 ## Layering rules
 
-The most important design constraint, repeated in comments throughout the code:
+1. **No Godot types in static initializers.** The registry, the test model, and the coroutine machinery are pure C++ (`std::string`, `std::vector`, function-local statics). Registration happens at library load time, and Godot objects must not be touched before initialization.
+2. **Godot types stay in a small engine boundary.** The core (`registry.cpp`, `context.h`, `assert.h`, `async.h`, `config.h`) is plain C++. Godot types appear only in the engine-boundary files: `runner.h` with `runner.cpp`, `engine.h`, `strings.h`, `signals.h` with `signals.cpp`, `adapter.h`, and the entry/adapter sources.
+3. **The core speaks `std::string`.** Failures, skip reasons, and value formatting are `std::string` end to end. `godot::String` converts to UTF-8 at the boundary (`strings.h`) and nowhere else.
+4. **Assertions record; they do not throw.** A failing expectation appends a `Failure` to the test's `TestContext` and execution continues. Only `GDEX_ABORT_TEST` and `GDEX_SKIP` throw private exception types, and the runner catches both inside its own frame. Nothing crosses an engine callback boundary.
+5. **The runner is single-threaded.** Sync tests run inline, one after another. Async tests are coroutines resumed by a `process_frame` pump, one test at a time in declaration order.
 
-1. **No Godot types in static initializers.** The registry and its registration machinery
-   are pure C++ (`std::string`, `std::vector`, function-local statics). Godot forbids
-   interacting with engine objects before initialization, and static registration happens
-   at library load, so the registry must never touch engine types.
-2. **Only the engine-boundary files touch Godot.** The framework core (`registry.*`,
-   `context.h`, `assert.h`) is pure C++. Godot types appear only in two engine-boundary
-   headers: `include/gdextest/runner.h` + `src/framework/runner.cpp` (the runner) and
-   `include/gdextest/engine.h` (the accessors that hand a live `SceneTree` to integration
-   test bodies). A body still gets
-   only a `TestContext&`; reaching the engine is opt-in via `engine.h` + a `TAG_INTEGRATION`
-   tag.
-3. **The adapter is the host's only file that knows the extension.** The contract is
-   declared in `include/gdextest/adapter.h` — `gdextest_adapter::maybe_run(godot::Node*)` — so
-   custom adapters fail at compile time on a signature mismatch, not at link time.
-   `src/support/adapter.cpp` is the reference implementation (~40 lines): trigger
-   detection, `bootstrap()`, and the call into the runner. The framework ships it as a
-   template; each host rewrites the `bootstrap()` and (if needed) the hook point.
-4. **Assertions record, they never throw.** A failing `GDX_EXPECT_*` appends a `Failure` to
-   the test's `TestContext` and execution continues, so one test reports every failing
-   check. The single exception is `GDEX_ABORT_TEST`, which throws a private `TestAborted`
-   that is caught *inside the runner's own frame* — it never crosses an engine callback
-   boundary.
-5. **The runner is single-threaded.** Sync tests run inline, one after another. Async tests
-   are C++20 coroutines: when a body `co_await`s, the runner registers a
-   `process_frame` callback and returns control to the engine main loop; each frame
-   advances the wait and resumes the coroutine when it resolves. Tests still run one at a
-   time, in declaration order — no interleaving. Timeouts (`kDefaultTimeoutMs` per wait,
-   `kDefaultIsolateTimeoutSec` per test) bound every suspension so a test that never
-   resolves fails instead of hanging the run. The budgets are runtime-tunable: the runner
-   reads `--gdextest-timeout-ms` / `--gdextest-isolate-timeout-sec` /
-   `--gdextest-flaky-retries`, which the CLI populates from `[gdextest.test]` in the
-   consumer's `.gdextest.toml`, so CI can raise them without rebuilding the framework.
+## The adapter system
+
+Adapters are extension-specific hooks around the test run. The framework supports any number of them.
+
+### The `ExtensionAdapter` interface
+
+```cpp
+struct MyAdapter : public gdextest::ExtensionAdapter {
+    void on_initialize(godot::ModuleInitializationLevel level) override;
+    void on_uninitialize(godot::ModuleInitializationLevel level) override;
+    void on_ready(godot::Node *tree_node) override;
+};
+
+GDEX_REGISTER_ADAPTER(MyAdapter)
+```
+
+All three callbacks default to no-ops, so an adapter overrides only what it needs.
+
+### Dispatch points
+
+| Callback | Fired by | When |
+| --- | --- | --- |
+| `on_initialize` | `AdapterRegistry::dispatch_initialize` | Each GDExtension initialization level, in registration order. |
+| `on_uninitialize` | `AdapterRegistry::dispatch_uninitialize` | Each uninitialization level, in reverse order (LIFO). |
+| `on_ready` | `AdapterRegistry::dispatch_ready` | Once, right before a triggered run starts, with the host node. |
+
+### The run trigger path
+
+The reference adapter in `src/support/adapter.cpp` implements the contract `gdextest_adapter::maybe_run(godot::Node*)`:
+
+1. Check the trigger: the `GDX_RUN_TESTS` environment variable, or `--gdextest-run` in either of Godot's two command-line argument lists.
+2. Without a trigger, return immediately. The extension loads but nothing runs.
+3. With a trigger, dispatch `on_ready` to all adapters, call `bootstrap_host()` (the `gdextest/host.h` callbacks), and call `run_all_and_quit(tree_node)`.
+
+Replace the adapter through the SConscript's `adapter` export when your extension needs different startup. The declaration in `adapter.h` keeps the contract compile-checked.
 
 ## Lifecycle of a test run
 
-From a consumer repository, `./extern/gdextest/gdextest test` performs the CLI preflight
-before this engine lifecycle: it creates the starter config only when `.gdextest.toml` is
-missing, keeps existing configuration intact, and runs the doctor checks on every
-invocation. A failed preflight returns `2` before SCons starts. The fixture generated by
-the build is disposable: the CLI removes it after the run, mirroring the temporary
-injected `SConstruct` — only the test library and any requested result files persist.
+From a consumer repository, `gdextest test` performs a CLI preflight before the engine lifecycle ever starts:
 
-1. **Build.** After preflight, the CLI runs scons (`tests=true`, plus `[gdextest.build]
-   args`) to compile the framework core, the entry point, the host adapter, and the host
-   suites into a separately-named shared object (`libgdextest…so`) with
-   `GDEXTEST_ENABLED` defined. Release builds carry neither the define nor the file. When
-   the consumer's `SConstruct` doesn't call the framework SConscript, the CLI builds
-   through a temporary injected copy — `SConstruct.gdextest`, the real file with the
-   framework call appended, invoked via `scons -f` — that is deleted afterwards, so the
-   consumer's build file is never modified.
-2. **Load.** The fixture project's `project.godot` lists the extension via
-   `[native_extensions]`; the `.gdextension` manifest points at the test `.so` and its
-   `entry_symbol`. Godot loads it at startup and calls `gdextest_library_init`, which
-   registers the `GdextestPlugin` `EditorPlugin` at the EDITOR initialization level.
-3. **Enable.** The fixture enables the plugin through `[editor_plugins]` +
-   `addons/<name>/plugin.cfg`. The plugin script (a plain `EditorPlugin`) instantiates the
-   native `GdextestPlugin` once `EditorFileSystem.is_scanning()` is false — quitting earlier
-   races the scan thread and can crash the editor (see `testing/notes.md` §5).
-4. **Trigger.** The native plugin's `_ready()` calls `gdextest_adapter::maybe_run(self)`, which
-   returns immediately unless a trigger is present: `GDX_RUN_TESTS` in the environment, or
-   `--gdextest-run` in either of Godot's two argument lists (before or after `--`).
-5. **Run.** `run_all_and_quit(tree_node)` parses the `--gdextest-*` options from the user
-   args and filters/shards/shuffles the registry. Sync bodies run inline with a fresh
-   `TestContext`. An async body (`GDEX_TEST_ASYNC`) is a coroutine: the runner starts it and,
-   when it `co_await`s `ctx.await_frames(n)` / `ctx.await_timer_ms(ms)`, connects a
-   `process_frame` pump that resumes it once the wait resolves (or fails it on timeout).
-   When every test is done it prints human output (plus JSON if `--gdextest-json=` was
-   given).
-6. **Exit.** `SceneTree::quit(code)` propagates to the OS exit code under `--headless`
-   (verified: `quit(0)→0`, `quit(1)→1`, `quit(7)→7`). The runner uses `0` for all-pass,
-   `1` for any failure.
+1. **Preflight.** Write the starter config when `.gdextest.toml` is missing. Run the doctor checks. A failed check returns `2` before SCons starts.
+2. **Build.** Run SCons (`tests=true`, plus `[gdextest.build] args`). The framework core, the entry point, the adapter, and all configured suite sources compile into one shared object with `GDEXTEST_ENABLED` defined. When the consumer's `SConstruct` does not call the framework SConscript, the build runs through a temporary injected copy (`SConstruct.gdextest`) that is deleted afterwards. On Linux an `ldd -r` pass reports unresolved symbols before Godot ever loads the library.
+3. **Load.** The fixture project's `project.godot` lists the test library under `[native_extensions]`. Godot loads it and calls the entry symbol, which registers the editor plugin class and `SignalMonitor` at the editor initialization level.
+4. **Enable.** The fixture enables the plugin. The generated plugin script waits for `EditorFileSystem.is_scanning()` to become false, then instantiates the native plugin node. Quitting during the first scan races the scan thread and can crash the editor, so the wait is mandatory.
+5. **Trigger.** The native plugin's `_ready()` calls `gdextest_adapter::maybe_run(self)`. The adapter checks the trigger, dispatches `on_ready`, bootstraps the host, and calls the runner.
+6. **Run.** The runner parses the `--gdextest-*` options from the user argument list, applies the runtime budgets, and selects tests (filter, shard, shuffle). Sync bodies run inline with a fresh `TestContext` each. Async bodies suspend and resume across `process_frame` ticks.
+7. **Report.** After the last test, the runner prints the human summary, writes the JSON document when `--gdextest-json=` was given, and calls `shutdown_host()`.
+8. **Exit.** `SceneTree::quit(code)` maps to the process exit code: `0` all passed, `1` any failure or crash, `2` usage error.
+9. **Clean up.** The CLI removes the disposable fixture project and resets the hermetic `user://` directory for the next run.
 
-## Why editor mode?
+## Determinism and time bounds
 
-The fixture runs with `--headless --editor` because the extension hooks
-`EditorPlugin::_ready()`. The M0 spike proved this is the safe place to call `quit()` from:
-an autoload's `_ready()` runs mid-`first_scan_filesystem`, before the editor main loop is
-up, and a `quit()` from there is dropped — the editor hangs indefinitely. See
-`testing/notes.md` §3.3 for the full story (and §5 for the scan-race correction).
+- Tests run in declaration order unless `--gdextest-shuffle` is set. Shuffling uses a seeded LCG with Fisher-Yates, so a fixed seed reproduces the order.
+- Sharding hashes `suite` and `name` (FNV-1a), so a test always lands in the same shard. Shards are disjoint and complete.
+- Async tests run one at a time. The pump never interleaves two bodies.
+- Every async wait carries a deadline; every test carries an isolate budget. A stalled test fails with a message; it never hangs the run.
+- `user://` is hermetic: the CLI points `XDG_DATA_HOME` at a wiped per-run directory, because Godot 4.5 has no user-data-dir flag.
 
-## Key design decisions (and why)
+## Key design decisions
 
 | Decision | Rationale |
 | --- | --- |
-| `TestContext&` injected into every test body | Keeps assertions free of global state; the runner owns the context, and `GDEX_ABORT_TEST` can still record on the active context via a thread-local-style pointer |
-| Failures recorded, not thrown | One test reports all failures; nothing propagates across engine callbacks |
-| `Filter` mirrors googletest glob grammar | Familiar to users; supports `suite.*`, negatives, and matching against `suite.name`, `suite`, or `name` |
-| Stable-hash sharding | The same test always lands in the same shard, so shards are disjoint across runs and CI parallelism is reproducible |
-| Seeded shuffle (LCG + Fisher–Yates) | Reproducible randomized order for finding order-dependent bugs |
-| Flaky-tag retries | Gives explicitly tagged tests up to 3 additional attempts without hiding ordinary failures |
-| Resource tracking via instance IDs/reference counts | Detects leaked Godot objects and retained references during teardown without stale-pointer dereferences |
-| Async tests are C++20 coroutines (`Task` + `co_await`), not threads | Coroutines suspend on the Godot main thread and are resumed by the `process_frame` pump — no locking, no engine calls off the main thread; a plain sync body is unchanged (`GDEX_TEST` stays a function pointer) |
-| One async test in flight at a time, declaration order | Keeps results deterministic and avoids interleaving; the pump advances one await per tick |
-| Public headers ship in `include/gdextest/`, core implementation in `src/framework/`, entry + adapter in `src/`, suites in `tests/` | The public surface is a clean `gdextest/` include prefix; the core is host-agnostic; entry/adapter are the engine-boundary templates; `tests/` is this repo's own reference usage |
+| `TestContext&` injected into every body | No global state for suites; the runner owns the context, and abort/skip still reach the active context through a framework-internal pointer. |
+| Failures recorded, not thrown | One test reports all failing checks. Nothing propagates across engine callbacks. |
+| Static registration in a pure C++ registry | Registry order never depends on engine state. Godot objects are untouchable at load time. |
+| `Filter` mirrors googletest glob grammar | Familiar globs with negatives; matches `suite.name`, the suite, or the name. |
+| Stable-hash sharding | The same test always lands in the same shard. CI parallelism stays reproducible. |
+| Seeded shuffle | Reproducible randomized order for finding order-dependent bugs. |
+| `TAG_FLAKY` retries | Explicitly tagged tests get up to `flaky_retries` extra attempts; ordinary failures stay visible. |
+| Resource tracking by instance ID and refcount | Leaks fail the test at teardown without dereferencing stale pointers. |
+| Coroutines instead of threads for async tests | Bodies suspend on the main thread and resume on engine frames. No locks, no off-thread engine calls. |
+| Teardowns before leak checks | A teardown can free what `track_object` watches, so cleanup order is never a trap. |
+| Disposable fixture project | The fixture is generated per run and removed after. Stale manifests and libraries from earlier configs cannot linger. |
 
-## Engine facts the framework leans on
+## Verified engine facts the framework leans on
 
-All verified against the vendored `extern/godot-cpp` 4.5 bindings and a live Godot 4.5
-binary — see [testing/notes.md](testing/notes.md):
+The design depends on these behaviors, all exercised continuously by the framework's own suites:
 
 - `SceneTree::quit(code)` propagates to the process exit code under `--headless`.
-- `OS::set_exit_code` is **not** exposed by godot-cpp 4.5; `quit()` is the only path.
-- Trigger detection must check both `get_cmdline_args()` (before `--`) and
-  `get_cmdline_user_args()` (after `--`).
-- `user://` is made hermetic via `XDG_DATA_HOME=<tmpdir>` (there is no `--user-data-dir`
-  flag in 4.5).
-- The editor plugin's `_ready()` fires **before** the filesystem scan completes; defer the
-  run until `is_scanning()` is false.
-- `SceneTree.process_frame` fires under `--headless` and `--headless --editor` and takes no
-  arguments — the pump drives async tests off it (verified, notes.md §2 R2a/R2b).
+- `OS::set_exit_code` is not exposed by godot-cpp 4.5, so `quit()` is the only exit path.
+- Trigger detection must check both `OS::get_cmdline_args()` (before `--`) and `OS::get_cmdline_user_args()` (after `--`).
+- `user://` hermeticity needs `XDG_DATA_HOME`; Godot 4.5 has no user-data-dir flag.
+- The editor plugin's `_ready()` fires before the first filesystem scan finishes. The run must wait for `is_scanning()` to become false.
+- `SceneTree.process_frame` fires under both `--headless` and `--headless --editor` and carries no arguments. The async pump drives on it.
+- Godot 4.5's first headless-editor run on a cold project cache can abort during shutdown. The import finishes before the abort, so one warmup pass makes the following run deterministic.
+
+## Repository layout
+
+| Path | Role |
+| --- | --- |
+| `include/gdextest/` | Public headers. Suites include only these. |
+| `src/framework/` | Core implementation: `registry.cpp`, `runner.cpp`, `host.cpp`, `signals.cpp`. |
+| `src/gdextest_entry.cpp` | GDExtension entry point plus the editor-plugin shell (test build only). |
+| `src/support/adapter.cpp` | Reference adapter: trigger check, adapter dispatch, run start. |
+| `tools/gdextest.py` | The CLI: commands, doctor, build driving, result merging. |
+| `tools/gdextest_config.py` | TOML loading, source discovery, Godot discovery, validation. |
+| `tools/generate_fixture.py` | Fixture project generator (editor and runtime host modes). |
+| `SConscript` | Reusable build wiring consumers call from their `SConstruct`. |
+| `tests/` | The framework's own suites, plus the consumer smoke test. |
+| `run_tests.sh` | Compatibility wrapper around `gdextest test` for this repository. |
