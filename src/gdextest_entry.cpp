@@ -1,5 +1,4 @@
 // Minimal GDExtension entry + EditorPlugin shell (test build only).
-// The plugin's _ready() is the M0-verified safe editor hook (plan §3).
 #ifdef GDEXTEST_ENABLED
 
 #include "gdextest/adapter.h"
@@ -8,8 +7,6 @@
 #include <godot_cpp/classes/editor_plugin.hpp>
 #include <godot_cpp/godot.hpp>
 
-// The EditorPlugin the fixture project enables. Its _ready() is the safe hook point
-// (autoload under --editor hangs — see docs/testing/notes.md §3.3).
 class GdextestPlugin : public godot::EditorPlugin {
     GDCLASS(GdextestPlugin, godot::EditorPlugin)
 
@@ -20,9 +17,6 @@ protected:
 
 public:
     void _ready() override {
-        // Defer until the plugin's ready callback has returned. Calling quit()
-        // synchronously while the editor is dispatching plugin initialization
-        // can leave Godot tearing down the scene tree underneath this object.
         call_deferred("_run_tests");
     }
 
@@ -35,13 +29,20 @@ public:
 using namespace godot;
 
 void initialize_test_module(ModuleInitializationLevel p_level) {
-    if (p_level != MODULE_INITIALIZATION_LEVEL_EDITOR) return;
-    GDREGISTER_CLASS(gdextest::SignalMonitor);
-    ClassDB::register_class<GdextestPlugin>();
+    if (auto *adapter = gdextest::AdapterRegistry::instance().get_adapter()) {
+        adapter->on_initialize(p_level);
+    }
+
+    if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
+        GDREGISTER_CLASS(gdextest::SignalMonitor);
+        ClassDB::register_class<GdextestPlugin>();
+    }
 }
 
 void uninitialize_test_module(ModuleInitializationLevel p_level) {
-    if (p_level != MODULE_INITIALIZATION_LEVEL_EDITOR) return;
+    if (auto *adapter = gdextest::AdapterRegistry::instance().get_adapter()) {
+        adapter->on_uninitialize(p_level);
+    }
 }
 
 extern "C" {
@@ -54,9 +55,7 @@ GDExtensionBool GDE_EXPORT gdextest_library_init(
                                                    r_initialization);
     init_obj.register_initializer(&initialize_test_module);
     init_obj.register_terminator(&uninitialize_test_module);
-    // Fire our initializer at (and after) the EDITOR level only; the guard inside
-    // initialize_test_module registers the plugin exactly once, at that level.
-    init_obj.set_minimum_library_initialization_level(godot::MODULE_INITIALIZATION_LEVEL_EDITOR);
+    init_obj.set_minimum_library_initialization_level(godot::MODULE_INITIALIZATION_LEVEL_CORE);
     return init_obj.init();
 }
 
