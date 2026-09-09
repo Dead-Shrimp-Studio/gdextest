@@ -17,7 +17,7 @@ The CLI is the `gdextest` script inside the framework submodule. Run it from you
 | `gdextest doctor` | Environment checks without building. |
 | `gdextest scaffold` | Wire the `SConstruct` permanently (`--apply`), generate the entry point and a smoke suite, then run doctor. |
 | `gdextest list` | Build the test library and list the selected tests. Needs a run trigger: pass `--gdextest-run` through or set `GDX_RUN_TESTS`. |
-| `gdextest report` | Merge shard result documents into one JSON/JUnit report. |
+| `gdextest report` | Merge shard result documents into one JSON/JUnit report. `--console` also renders a human report. |
 | `gdextest clean` | Remove the fixture directory and the build output. |
 
 `test` is safe on a fresh clone: it creates the starter config only when none exists, and it never modifies your `SConstruct`. When the build file does not call the framework SConscript, `test` builds through a temporary injected copy (`SConstruct.gdextest`, created with `scons -f`, deleted afterwards). `scaffold --apply` is the only command that writes your `SConstruct`; it backs the file up as `SConstruct.gdextest.bak` first and verifies the patch parses.
@@ -177,6 +177,8 @@ Shard assignment hashes `suite` and `name`, so it is stable across runs and disj
 ```
 
 `report` accepts file paths or glob patterns, concatenates the results, and recomputes `totals`. It exits `1` when any merged test failed or crashed, so the merge step gates the pipeline too.
+
+With `--console`, `report` additionally renders the merged results as a GoogleTest-style console report — per-suite blocks with `[ RUN ]` / `[ OK ]` / `[ FAILED ]` / `[ SKIPPED ]` lines, failure detail, skip reasons, and retry annotations. Colors follow `--color={auto,always,never}` (default `auto`: on for a terminal, off when piped or in CI, honoring `NO_COLOR` and `CLICOLOR_FORCE`). The default JSON-on-stdout output is unchanged; `--console` only prints the human report in addition.
 
 ## Environment and hygiene
 

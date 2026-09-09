@@ -27,6 +27,8 @@ from gdextest_config import (
     source_pattern_matches,
 )
 
+from gdextest_report import compute_totals, render_report, use_color
+
 
 CONFIG_TEMPLATE = '''[gdextest]
 version = "1"
@@ -632,9 +634,16 @@ def cmd_report(args: argparse.Namespace) -> int:
     Parallel CI runs `test --gdextest-shard=k/n --json=shard{k}.json` per job;
     `report shard*.json --json=merged.json` turns them into a single document.
     Exits 1 when any merged test failed or crashed (mirrors the runner).
+
+    With `--console`, the merged results are additionally rendered as a
+    googletest-style console report (colors per --color); the JSON-on-stdout
+    default behavior is unchanged.
     """
     documents = _load_result_documents(args.paths)
     merged = _merge_documents(documents)
+    if getattr(args, "console", False):
+        color = use_color(getattr(args, "color", None))
+        print(render_report(merged, color=color))
     if args.json:
         with open(args.json, "w", encoding="utf-8") as handle:
             json.dump(merged, handle, indent=2)
@@ -809,6 +818,10 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("paths", nargs="+", help="result JSON files or globs, e.g. 'shard*.json'")
     report.add_argument("--json", help="write merged JSON here (default: stdout)")
     report.add_argument("--junit", help="write merged results as JUnit XML here")
+    report.add_argument("--console", action="store_true",
+                        help="also render the merged results as a console report")
+    report.add_argument("--color", choices=["auto", "always", "never"], default="auto",
+                        help="colorize the --console report (auto: TTY, honoring NO_COLOR/CI)")
     report.set_defaults(function=cmd_report)
 
     listing = subparsers.add_parser("list", help="build and list tests")
