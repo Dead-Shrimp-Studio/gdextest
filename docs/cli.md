@@ -51,11 +51,15 @@ The runner reads these from Godot's user argument list (after `--`). The CLI for
 | `--gdextest-shard=k/n` | Run shard `k` of `n`. `hash(suite) ^ (hash(name) * 2654435761)` modulo `n`, so assignment is stable across runs. | no sharding |
 | `--gdextest-shuffle[=seed]` | Shuffle with a seeded LCG and Fisher-Yates. A fixed seed reproduces the order. | declaration order |
 | `--gdextest-json=<path>` | Write the JSON results document. | none |
+| `--gdextest-report-path=<path>` | Write a second JSON results document here. Wrappers use it so the console report never depends on the primary path being writable. | none |
+| `--gdextest-report={quiet,pretty}` | The in-engine stdout report. `quiet` (default): a marker-prefixed summary plus one line per test with failure and skip detail. `pretty`: the legacy human layout, also marker-prefixed. | quiet |
 | `--gdextest-timeout-ms=<n>` | Per-wait timeout for async waits. | 30000 |
 | `--gdextest-isolate-timeout-sec=<n>` | Whole-test budget for one async test. | 60 |
 | `--gdextest-flaky-retries=<n>` | Extra attempts for `TAG_FLAKY` tests. | 3 |
 
 The CLI always forwards the three budget flags, populated from `[gdextest.test]` in `.gdextest.toml`, so TOML values apply without a framework rebuild.
+
+The CLI also forwards `--gdextest-report=quiet` (plus a `--gdextest-report-path` copy whenever a document target is explicit), so the report is rendered from the JSON document after the engine exits rather than printed inside it. **Console contract:** every line the runner prints on stdout inside the engine process is prefixed with `GDX_TEST_OUTPUT:` — that is what lets the CLI (or any wrapper) separate framework output from Godot's own chatter in a captured stream.
 
 ## The trigger
 
@@ -124,7 +128,7 @@ Exit happens through `SceneTree::quit(code)`, which propagates to the process ex
 - Godot's captured output is suppressed by default. `--verbose` prints it after the report; `--gdextest-raw-log=<path>` writes it verbatim to a file.
 - A failed run appends the last engine lines as `gdextest: godot output (tail)` — load-time errors and warnings usually live there.
 - If the engine dies before writing the results document (segfault, OOM kill), no results are faked: the CLI prints the noise tail instead and propagates the process exit code.
-- Runs that drive the Godot binary directly (see the examples below) bypass the CLI, so Godot's and the runner's output both appear unfiltered on the console; the captured-and-rendered report is the `gdextest test` surface.
+- Runs that drive the Godot binary directly (see the examples below) bypass the CLI, so Godot's output appears unfiltered on the console. The runner's own lines are each prefixed with `GDX_TEST_OUTPUT:` and stay grep-able; `--gdextest-report=pretty` restores the human layout. The captured-and-rendered report is the `gdextest test` surface.
 
 `--gdextest-list` prints the selected tests and captures the engine launch output:
 

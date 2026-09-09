@@ -710,12 +710,27 @@ def _print_noise_tail(stderr: str, stdout: str) -> None:
 
 
 def _extract_list_output(text: str) -> list[str]:
-    """Pull the legacy `# gdextest list:` block out of captured engine output.
+    """Pull the `# gdextest list:` block out of captured engine output.
 
-    The block runs from its header through consecutive space-free lines
-    (suite.name entries); the first spaced line is engine chatter resuming.
+    The M3 runner marker-prefixes every line, so the block is extracted from
+    marked lines; the legacy unmarked layout stays supported as a fallback for
+    older test libraries.
     """
     out: list[str] = []
+    in_list = False
+    for line in text.splitlines():
+        if line.startswith(GDX_TEST_OUTPUT_PREFIX):
+            stripped = line[len(GDX_TEST_OUTPUT_PREFIX):].lstrip()
+            if stripped.startswith("# gdextest list:"):
+                in_list = True
+                out.append(stripped)
+                continue
+            if in_list:
+                if not stripped or " " in stripped:
+                    break
+                out.append(stripped)
+    if out:
+        return out
     in_list = False
     for line in text.splitlines():
         if line.startswith("# gdextest list:"):
@@ -830,22 +845,35 @@ def cmd_test(args: argparse.Namespace) -> int:
         if passthrough_junit and not junit_path:
             junit_path = passthrough_junit
         temp_json = False
+        report_path = None
+        passthrough_json = _passthrough_json_path(user_args)
         if args.json:
             # Godot chdirs to the fixture dir (--path), so a relative path would resolve
             # against the fixture, not the user's cwd. Resolve it up front.
             json_path = os.path.abspath(args.json)
             user_args.append(f"--gdextest-json={json_path}")
+        elif passthrough_json:
+            # A raw --gdextest-json= pass-through stays authoritative.
+            json_path = passthrough_json
         else:
-            passthrough_json = _passthrough_json_path(user_args)
-            if passthrough_json:
-                json_path = passthrough_json
-            else:
-                # No machine document requested: the runner still needs a JSON
-                # target for the post-run console report; keep it in a temp file.
-                json_path = os.path.join(tempfile.gettempdir(),
-                                         f"gdextest-results-{os.getpid()}.json")
-                user_args.append(f"--gdextest-json={json_path}")
-                temp_json = True
+            # No explicit document target (the user may still have asked for
+            # --junit, whose XML derives from the runner's JSON document): use
+            # a temp file the runner writes and the console report reads.
+            json_path = os.path.join(tempfile.gettempdir(),
+                                     f"gdextest-results-{os.getpid()}.json")
+            user_args.append(f"--gdextest-json={json_path}")
+            temp_json = True
+        if not temp_json:
+            # The user's document target stays authoritative, but the report
+            # renderer reads a guaranteed-writable second copy instead of
+            # betting on the user's path.
+            report_path = os.path.join(tempfile.gettempdir(),
+                                       f"gdextest-report-{os.getpid()}.json")
+            user_args.append(f"--gdextest-report-path={report_path}")
+        # Quiet in-engine stdout: the report is rendered here from the JSON,
+        # not inside the engine. Every runner line is marker-prefixed, so
+        # captured output stays separable regardless.
+        user_args.append("--gdextest-report=quiet")
         _warm_fixture(config, executable)
         print("gdextest: running the test suites in Godot (engine output is "
               "captured; the report follows)", flush=True)
@@ -858,12 +886,13 @@ def cmd_test(args: argparse.Namespace) -> int:
         stderr = getattr(run_result, "stderr", None) or ""
         marked, _noise = _split_captured_output(stdout, stderr)
         document = None
-        if json_path and os.path.isfile(json_path):
-            try:
-                with open(json_path, encoding="utf-8") as handle:
-                    document = json.load(handle)
-            except (OSError, ValueError):
-                document = None
+        for candidate in (report_path, json_path):
+            if document is None and candidate and os.path.isfile(candidate):
+                try:
+                    with open(candidate, encoding="utf-8") as handle:
+                        document = json.load(handle)
+                except (OSError, ValueError):
+                    document = None
         if junit_path and json_path and os.path.isfile(json_path):
             try:
                 _json_to_junit(json_path, os.path.abspath(junit_path))
@@ -874,8 +903,8 @@ def cmd_test(args: argparse.Namespace) -> int:
         if document is not None:
             print(render_report(document, color=use_color(getattr(args, "color", None))))
         elif marked:
-            # Runner markers without a parsable document (the M3 runner path):
-            # the marked lines are the forensics.
+            # Runner markers without a parsable document (engine died during
+            # reporting): the marked lines are the forensics.
             for line in marked.splitlines():
                 print(line)
         else:
@@ -897,11 +926,12 @@ def cmd_test(args: argparse.Namespace) -> int:
             # Failed run: the report shows the failures; the tail keeps the
             # engine context (warnings, load messages) for triage.
             _print_noise_tail(stderr, stdout)
-        if temp_json:
-            try:
-                os.unlink(json_path)
-            except OSError:
-                pass
+        for temp_file in (report_path, json_path if temp_json else None):
+            if temp_file:
+                try:
+                    os.unlink(temp_file)
+                except OSError:
+                    pass
         return code
     finally:
         if keep_fixture and code != 0:

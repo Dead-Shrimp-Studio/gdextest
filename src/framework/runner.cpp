@@ -29,6 +29,12 @@
 
 namespace gdextest {
 
+// Every line this runner prints to stdout inside the engine process carries
+// this prefix (Milestone M3), so the CLI can separate framework output from
+// Godot's own chatter in the captured stream. Consumers who drive Godot
+// directly can grep for it, too.
+inline constexpr const char *kGdxOutputMarker = "GDX_TEST_OUTPUT:";
+
 void TestContext::track_object(void *obj) {
     auto *object = static_cast<godot::Object *>(obj);
     if (object) tracked_objects_.push_back({object->get_instance_id()});
@@ -54,6 +60,12 @@ struct Options {
     int shard_index = 0;
     int shard_count = 1;
     std::string json_path;
+    // Machine-friendly reporting (Milestone M3): `report_path` is an extra
+    // JSON document the CLI (or any wrapper) reads after the process exits;
+    // `report` selects the in-engine stdout verbosity. Defaults stay quiet —
+    // the CLI renders the pretty report from the JSON document.
+    std::string report_path;
+    bool pretty_report = false;
     // Runtime budgets, populated from --gdextest-* flags (the CLI forwards the
     // consumer's [gdextest.test] keys). Defaults stay in sync with config.h.
     int timeout_ms = kDefaultTimeoutMs;
@@ -120,6 +132,13 @@ Options parse_from_godot() {
             continue;
         }
         if (take_value(arg, "--gdextest-json", value)) { options.json_path = value; continue; }
+        if (take_value(arg, "--gdextest-report-path", value)) { options.report_path = value; continue; }
+        if (take_value(arg, "--gdextest-report", value)) {
+            if (value == "pretty") { options.pretty_report = true; }
+            else if (value == "quiet") { options.pretty_report = false; }
+            else { throw UsageError{"invalid report mode: '" + value + "' (expected pretty or quiet)"}; }
+            continue;
+        }
         if (take_value(arg, "--gdextest-timeout-ms", value)) {
             options.timeout_ms = parse_int(value, "timeout ms");
             if (options.timeout_ms <= 0) throw UsageError{"timeout ms must be positive"};
@@ -151,6 +170,28 @@ Filter to_filter(const Options &options) {
     return filter;
 }
 
+// Prefix one output line with the framework marker. All runner stdout goes
+// through this, so captured engine output is always separable from Godot's
+// own chatter. Nothing is buffered: a crash may cut the tail short, but never
+// reorders it.
+void gdx_print(const std::string &text) {
+    std::printf("%s %s\n", kGdxOutputMarker, text.c_str());
+}
+
+// Marker-prefix each physical line of `text` (failure messages embed newlines
+// for their expected/actual operand lines).
+void gdx_print_lines(const std::string &text) {
+    size_t start = 0;
+    while (true) {
+        const size_t newline = text.find('\n', start);
+        gdx_print(text.substr(start, newline == std::string::npos
+                                         ? std::string::npos
+                                         : newline - start));
+        if (newline == std::string::npos) break;
+        start = newline + 1;
+    }
+}
+
 struct TestResult {
     const TestCase *test_case = nullptr;
     int failure_count = 0;
@@ -162,22 +203,37 @@ struct TestResult {
     long duration_ms = 0;
 };
 
-void write_human(const std::vector<TestResult> &results) {
+// In-engine stdout report. Quiet (default): a summary line plus one line per
+// test with its failure/skip detail — extraction fodder for wrappers. Pretty:
+// the same content, laid out for consumers driving Godot directly. Every
+// physical line is marker-prefixed in both variants; colors stay out of the
+// engine entirely.
+void write_report(const std::vector<TestResult> &results, bool pretty) {
+    (void)pretty;   // both variants share one content layout today
     int passed = 0, failed = 0, skipped = 0;
     for (const auto &result : results) {
         if (result.crashed || result.failure_count) ++failed;
         else if (result.skipped) ++skipped;
         else ++passed;
     }
-    std::printf("\n== gdextest: %d passed, %d failed, %d skipped ==\n", passed, failed, skipped);
+    gdx_print("== gdextest: " + std::to_string(passed) + " passed, " +
+              std::to_string(failed) + " failed, " + std::to_string(skipped) +
+              " skipped ==");
     for (const auto &result : results) {
-        const char *status = result.crashed || result.failure_count ? "FAIL" : result.skipped ? "SKIP" : "PASS";
-        std::printf("[%s] %s.%s  (%ld ms)", status, result.test_case->suite, result.test_case->name, result.duration_ms);
-        if (result.retries) std::printf("  (retries: %d)", result.retries);
-        std::printf("\n");
-        for (const auto &failure : result.failures)
-            std::printf("    %s:%d: %s\n", failure.file.c_str(), failure.line, failure.message.c_str());
-        if (result.skipped) std::printf("    skipped: %s\n", result.skip_reason.c_str());
+        const char *status = result.crashed || result.failure_count ? "FAIL"
+                           : result.skipped ? "SKIP" : "PASS";
+        std::string line = std::string("[") + status + "] " +
+                           result.test_case->suite + "." + result.test_case->name +
+                           "  (" + std::to_string(result.duration_ms) + " ms)";
+        if (result.retries) line += "  (retries: " + std::to_string(result.retries) + ")";
+        gdx_print(line);
+        for (const auto &failure : result.failures) {
+            gdx_print_lines("    " + failure.file + ":" +
+                            std::to_string(failure.line) + ": " +
+                            failure.message);
+        }
+        if (result.skipped && !result.skip_reason.empty())
+            gdx_print_lines("    skipped: " + result.skip_reason);
     }
 }
 
@@ -496,8 +552,11 @@ void finish_run(RunState *run) {
         run->tree->disconnect("process_frame", run->frame_callable);
         run->connected = false;
     }
-    write_human(run->results);
+    // JSON documents first (flushed before any printing), so a crash during
+    // reporting cannot lose the machine-readable results.
+    if (!run->options.report_path.empty()) write_json(run->options.report_path, run->results);
     if (!run->options.json_path.empty()) write_json(run->options.json_path, run->results);
+    write_report(run->results, run->options.pretty_report);
     gdextest::shutdown_host();
     bool failed = false;
     for (const auto &result : run->results) {
@@ -644,7 +703,7 @@ void run_all_and_quit(void *tree_node) {
     Options options;
     try { options = parse_from_godot(); }
     catch (const UsageError &error) {
-        std::printf("gdextest: usage error: %s\n", error.message.c_str());
+        gdx_print("gdextest: usage error: " + error.message);
         auto *node = static_cast<godot::Node *>(tree_node);
         if (node && node->get_tree()) node->get_tree()->quit(2);
         return;
@@ -659,8 +718,9 @@ void run_all_and_quit(void *tree_node) {
     godot::SceneTree *tree = node ? node->get_tree() : nullptr;
     const auto selected = TestRegistry::instance().select(to_filter(options));
     if (options.list_only) {
-        std::printf("# gdextest list: %zu tests selected\n", selected.size());
-        for (const auto *test_case : selected) std::printf("%s.%s\n", test_case->suite, test_case->name);
+        gdx_print("# gdextest list: " + std::to_string(selected.size()) + " tests selected");
+        for (const auto *test_case : selected)
+            gdx_print(std::string(test_case->suite) + "." + test_case->name);
         if (tree) tree->quit(0);
         return;
     }

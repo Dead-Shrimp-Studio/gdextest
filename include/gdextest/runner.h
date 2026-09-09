@@ -1,4 +1,13 @@
 // Runner: the Godot-facing test execution boundary.
+//
+// Console contract (Milestone M3): every line the runner prints on stdout
+// inside the engine process is prefixed with `GDX_TEST_OUTPUT:`, so wrappers
+// can separate framework output from Godot's own chatter. In-engine stdout is
+// quiet by default — one summary line plus one line per test (with failure and
+// skip detail), all marker-prefixed. `--gdextest-report=pretty` keeps the
+// legacy layout under the same marker rule. The machine-readable results go to
+// `--gdextest-json=<path>` and optionally `--gdextest-report-path=<path>`
+// (same schema), written before anything is printed.
 #pragma once
 
 #include <functional>

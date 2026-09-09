@@ -764,10 +764,13 @@ def test_cmd_test_passes_through_gdextest_args() -> None:
                                    "--gdextest-timeout-ms=30000",
                                    "--gdextest-isolate-timeout-sec=60",
                                    "--gdextest-flaky-retries=3")
-        # Since the captured-output reporting (M2), the CLI always appends a
-        # JSON target for the runner so the post-run console report has data.
-        assert len(captured[0]) == 5
+        # Since the captured-output reporting (M2/M3): without --json the CLI
+        # appends its own temp JSON target plus the quiet in-engine report
+        # flag; the --gdextest-report-path copy is only forwarded when the
+        # user named a document target explicitly (see the --json test).
+        assert len(captured[0]) == 6
         assert captured[0][4].startswith("--gdextest-json=")
+        assert captured[0][5] == "--gdextest-report=quiet"
 
 
 def test_timeout_budgets_forwarded_from_toml() -> None:
@@ -985,6 +988,90 @@ def test_extract_list_output_parses_legacy_block() -> None:
                 "suite.one\nsuite.two\n\nGodot chatter with spaces resumes\n")
     assert cli._extract_list_output(captured) == [
         "# gdextest list: 2 tests", "suite.one", "suite.two"]
+
+
+def test_extract_list_output_parses_marker_block() -> None:
+    """The M3 runner marker-prefixes list lines; extraction must prefer the
+    marked form and still fall back to the legacy layout."""
+    captured = ("Godot banner\n"
+                "GDX_TEST_OUTPUT: # gdextest list: 2 tests selected\n"
+                "GDX_TEST_OUTPUT: suite.one\n"
+                "GDX_TEST_OUTPUT: suite.two\n"
+                "Godot chatter resumes\n")
+    assert cli._extract_list_output(captured) == [
+        "# gdextest list: 2 tests selected", "suite.one", "suite.two"]
+
+
+def test_cmd_test_reads_report_path_copy() -> None:
+    """When the user passed --gdextest-json, the renderer reads the extra
+    --gdextest-report-path copy the CLI requested, not the user's file."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        document = {"totals": {"pass": 1, "fail": 0, "skip": 0, "crashed": 0},
+                    "results": [
+                        {"suite": "smoke", "name": "one", "status": "pass",
+                         "duration_ms": 0, "retries": 0, "failures": []},
+                    ]}
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None,
+            json=str(Path(directory) / "user-results.json"), junit=None,
+            passthrough=[], keep_fixture=False)
+        saved = _stub_cmd_test_deps(cli)
+        written_to = {}
+
+        def fake_run(command, **kwargs):
+            for arg in command:
+                if arg.startswith("--gdextest-report-path="):
+                    written_to["report"] = arg.split("=", 1)[1]
+                    Path(written_to["report"]).write_text(json.dumps(document),
+                                                          encoding="utf-8")
+            return type("Result", (), {"returncode": 0, "stdout": "",
+                                       "stderr": ""})()
+
+        try:
+            cli.subprocess.run = fake_run
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = cli.cmd_test(args)
+            out = buffer.getvalue()
+        finally:
+            _restore_cmd_test_deps(cli, saved)
+        assert code == 0
+        assert "[  PASSED  ] 1 test." in out
+        assert "report" in written_to
+        assert not os.path.exists(written_to["report"]), \
+            "the report-path copy must be cleaned up after the run"
+
+
+def test_cmd_test_marker_forensics_without_document() -> None:
+    """Fallback chain, M3 path: engine died during reporting, no JSON document,
+    but marker-prefixed lines exist -> the CLI reprints them stripped."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        marked_output = ("Godot banner\n"
+                         "GDX_TEST_OUTPUT: == gdextest: 0 passed, 1 failed ==\n"
+                         "GDX_TEST_OUTPUT: [FAIL] smoke.one  (3 ms)\n"
+                         "GDX_TEST_OUTPUT:     tests/a.cpp:3: expected a == b\n")
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None, json=None, junit=None,
+            passthrough=[], keep_fixture=False)
+        saved = _stub_cmd_test_deps(cli)
+        try:
+            cli.subprocess.run = _godot_run_stub(stdout=marked_output,
+                                                 returncode=1)
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = cli.cmd_test(args)
+            out = buffer.getvalue()
+        finally:
+            _restore_cmd_test_deps(cli, saved)
+        assert code == 1
+        assert "[FAIL] smoke.one  (3 ms)" in out
+        assert "tests/a.cpp:3: expected a == b" in out
+        assert "GDX_TEST_OUTPUT:" not in out, "markers must be stripped"
+        assert "Godot banner" not in out
 
 
 def test_cmd_test_renders_clean_report_and_hides_godot_noise() -> None:
@@ -1207,6 +1294,9 @@ if __name__ == "__main__":
     test_remove_fixture_refuses_project_root()
     test_split_captured_output_classifies_markers()
     test_extract_list_output_parses_legacy_block()
+    test_extract_list_output_parses_marker_block()
+    test_cmd_test_reads_report_path_copy()
+    test_cmd_test_marker_forensics_without_document()
     test_cmd_test_renders_clean_report_and_hides_godot_noise()
     test_cmd_test_report_color_always()
     test_cmd_test_failed_run_keeps_exit_and_noise_tail()
