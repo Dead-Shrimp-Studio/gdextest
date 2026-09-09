@@ -2,7 +2,9 @@
 """Tests for the external-consumer configuration contract."""
 
 from pathlib import Path
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -22,6 +24,34 @@ def load(name: str, path: Path):
 config_module = load("gdextest_config", ROOT / "tools" / "gdextest_config.py")
 generator = load("generate_fixture", ROOT / "tools" / "generate_fixture.py")
 cli = load("gdextest_cli", ROOT / "tools" / "gdextest.py")
+
+
+def _stub_cmd_test_deps(module) -> dict:
+    """Neutralize everything cmd_test touches around the Godot invocation, the
+    same set the fixture-cleanup tests stub; returns the originals."""
+    saved = {"doctor": module._run_doctor, "build": module._run_build,
+             "executable": module.godot_executable,
+             "version": module.godot_version,
+             "command": module._godot_command,
+             "warm": module._warm_fixture,
+             "run": module.subprocess.run}
+    module._run_doctor = lambda config, godot, allow_injection=False: 0
+    module._run_build = lambda config: None
+    module.godot_executable = lambda config, override: "/usr/bin/godot"
+    module.godot_version = lambda executable: "4.5"
+    module._godot_command = lambda config, executable, *user_args: ["godot", *user_args]
+    module._warm_fixture = lambda config, executable: None
+    return saved
+
+
+def _restore_cmd_test_deps(module, saved: dict) -> None:
+    module._run_doctor = saved["doctor"]
+    module._run_build = saved["build"]
+    module.godot_executable = saved["executable"]
+    module.godot_version = saved["version"]
+    module._godot_command = saved["command"]
+    module._warm_fixture = saved["warm"]
+    module.subprocess.run = saved["run"]
 
 
 def test_structured_config_and_excludes() -> None:
@@ -730,10 +760,14 @@ def test_cmd_test_passes_through_gdextest_args() -> None:
             cli._godot_command = original_command
             cli.subprocess.run = original_run
         assert result == 0
-        assert captured == [("--gdextest-some-new-flag=1",
-                             "--gdextest-timeout-ms=30000",
-                             "--gdextest-isolate-timeout-sec=60",
-                             "--gdextest-flaky-retries=3")]
+        assert captured[0][:4] == ("--gdextest-some-new-flag=1",
+                                   "--gdextest-timeout-ms=30000",
+                                   "--gdextest-isolate-timeout-sec=60",
+                                   "--gdextest-flaky-retries=3")
+        # Since the captured-output reporting (M2), the CLI always appends a
+        # JSON target for the runner so the post-run console report has data.
+        assert len(captured[0]) == 5
+        assert captured[0][4].startswith("--gdextest-json=")
 
 
 def test_timeout_budgets_forwarded_from_toml() -> None:
@@ -918,6 +952,222 @@ def test_scan_timeout_config_parses() -> None:
         assert config.scan_timeout_ms == 90000
 
 
+def _godot_run_stub(stdout: str = "", stderr: str = "", returncode: int = 0,
+                    document: dict | None = None):
+    """A subprocess.run stub for the Godot invocation: returns a captured result
+    and, when `document` is given, writes it to the `--gdextest-json=` path the
+    CLI appended — mirroring what the in-engine runner does."""
+    def _run(command, **kwargs):
+        if document is not None:
+            for arg in command:
+                if arg.startswith("--gdextest-json="):
+                    Path(arg.split("=", 1)[1]).write_text(
+                        json.dumps(document), encoding="utf-8")
+        return type("Result", (), {"returncode": returncode,
+                                   "stdout": stdout, "stderr": stderr})()
+    return _run
+
+
+_ENGINE_NOISE = ("Godot Engine v4.5.stable.official - https://godotengine.org\n"
+                 "Vulkan API 0.0.0.0 - Running with dummy rendering driver\n"
+                 "LoadingGDExtension: gdextest.gdextension loaded\n")
+
+
+def test_split_captured_output_classifies_markers() -> None:
+    marked, noise = cli._split_captured_output(
+        "GDX_TEST_OUTPUT: [PASS] a.b\nGodot noise line\n", "stderr chatter\n")
+    assert marked == "[PASS] a.b"
+    assert "Godot noise line" in noise and "stderr chatter" in noise
+
+
+def test_extract_list_output_parses_legacy_block() -> None:
+    captured = ("Godot banner line\n# gdextest list: 2 tests\n"
+                "suite.one\nsuite.two\n\nGodot chatter with spaces resumes\n")
+    assert cli._extract_list_output(captured) == [
+        "# gdextest list: 2 tests", "suite.one", "suite.two"]
+
+
+def test_cmd_test_renders_clean_report_and_hides_godot_noise() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        document = {"totals": {"pass": 2, "fail": 0, "skip": 0, "crashed": 0},
+                    "results": [
+                        {"suite": "smoke", "name": "one", "status": "pass",
+                         "duration_ms": 1, "retries": 0, "failures": []},
+                        {"suite": "smoke", "name": "two", "status": "pass",
+                         "duration_ms": 2, "retries": 0, "failures": []},
+                    ]}
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None, json=None, junit=None,
+            passthrough=[], keep_fixture=False)
+        saved = _stub_cmd_test_deps(cli)
+        try:
+            cli.subprocess.run = _godot_run_stub(stdout=_ENGINE_NOISE,
+                                                 returncode=0,
+                                                 document=document)
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = cli.cmd_test(args)
+            out = buffer.getvalue()
+        finally:
+            _restore_cmd_test_deps(cli, saved)
+        assert code == 0
+        assert "[==========] Running 2 tests from 1 suite." in out
+        assert "[  PASSED  ] 2 tests." in out
+        assert "Godot Engine v4.5" not in out, "engine noise must be suppressed"
+        assert "\x1b[" not in out, "auto color must stay off on a piped stream"
+
+
+def test_cmd_test_report_color_always() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        document = {"totals": {"pass": 1, "fail": 0, "skip": 0, "crashed": 0},
+                    "results": [
+                        {"suite": "smoke", "name": "one", "status": "pass",
+                         "duration_ms": 0, "retries": 0, "failures": []},
+                    ]}
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None, json=None, junit=None,
+            passthrough=[], keep_fixture=False, color="always")
+        saved = _stub_cmd_test_deps(cli)
+        try:
+            cli.subprocess.run = _godot_run_stub(document=document)
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                assert cli.cmd_test(args) == 0
+            out = buffer.getvalue()
+        finally:
+            _restore_cmd_test_deps(cli, saved)
+        assert "\x1b[32m[       OK ] smoke.one" in out
+
+
+def test_cmd_test_failed_run_keeps_exit_and_noise_tail() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        document = {"totals": {"pass": 0, "fail": 1, "skip": 0, "crashed": 0},
+                    "results": [
+                        {"suite": "smoke", "name": "one", "status": "fail",
+                         "duration_ms": 0, "retries": 0,
+                         "failures": [{"file": "tests/a.cpp", "line": 3,
+                                       "message": "expected a == b"}]},
+                    ]}
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None, json=None, junit=None,
+            passthrough=[], keep_fixture=False)
+        saved = _stub_cmd_test_deps(cli)
+        try:
+            cli.subprocess.run = _godot_run_stub(stdout=_ENGINE_NOISE,
+                                                 returncode=1,
+                                                 document=document)
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = cli.cmd_test(args)
+            out = buffer.getvalue()
+        finally:
+            _restore_cmd_test_deps(cli, saved)
+        assert code == 1
+        assert "[  FAILED  ] smoke.one" in out
+        assert "gdextest: godot output (tail):" in out
+        assert "Godot Engine v4.5" in out  # tail keeps the triage context
+
+
+def test_cmd_test_crash_without_document_shows_tail() -> None:
+    """Fallback chain: no JSON document (engine died) and no runner markers
+    (pre-M3) -> render the noise tail, keep the process exit code."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        crash_output = ("Godot Engine v4.5.stable.official\n"
+                        "ERROR: Condition \"!E\" is true.\n"
+                        "handle_crash: Writing stack backtrace\n"
+                        "Segmentation fault (core dumped)\n")
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None, json=None, junit=None,
+            passthrough=[], keep_fixture=False)
+        saved = _stub_cmd_test_deps(cli)
+        try:
+            cli.subprocess.run = _godot_run_stub(stdout=crash_output,
+                                                 returncode=134)
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = cli.cmd_test(args)
+            out = buffer.getvalue()
+        finally:
+            _restore_cmd_test_deps(cli, saved)
+        assert code == 134, "the process exit code must never be faked"
+        assert "[==========]" not in out, "no fake results for a dead run"
+        assert "gdextest: godot output (tail):" in out
+        assert "Segmentation fault (core dumped)" in out
+
+
+def test_cmd_test_verbose_and_raw_log() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        raw_log = Path(directory) / "godot-raw.log"
+        document = {"totals": {"pass": 1, "fail": 0, "skip": 0, "crashed": 0},
+                    "results": [
+                        {"suite": "smoke", "name": "one", "status": "pass",
+                         "duration_ms": 0, "retries": 0, "failures": []},
+                    ]}
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None, json=None, junit=None,
+            passthrough=[], keep_fixture=False, verbose=True,
+            raw_log=str(raw_log))
+        saved = _stub_cmd_test_deps(cli)
+        try:
+            cli.subprocess.run = _godot_run_stub(stdout=_ENGINE_NOISE,
+                                                 stderr="engine warning\n",
+                                                 returncode=0,
+                                                 document=document)
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                assert cli.cmd_test(args) == 0
+            out = buffer.getvalue()
+        finally:
+            _restore_cmd_test_deps(cli, saved)
+        assert "gdextest: godot output (--verbose):" in out
+        assert "Godot Engine v4.5" in out
+        assert "engine warning" in out
+        logged = raw_log.read_text(encoding="utf-8")
+        assert "Godot Engine v4.5" in logged and "engine warning" in logged
+
+
+def test_cmd_list_prints_extracted_list() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            passthrough=[], keep_fixture=False)
+        captured_stdout = (_ENGINE_NOISE + "# gdextest list: 2 tests\n"
+                           "suite.one\nsuite.two\n")
+        original_build = cli._run_build
+        original_executable = cli.godot_executable
+        original_warm = cli._warm_fixture
+        original_run = cli.subprocess.run
+        try:
+            cli._run_build = lambda config: None
+            cli.godot_executable = lambda config, override: "/usr/bin/godot"
+            cli._warm_fixture = lambda config, executable: None
+            cli.subprocess.run = _godot_run_stub(stdout=captured_stdout)
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = cli.cmd_list(args)
+            out = buffer.getvalue()
+        finally:
+            cli._run_build = original_build
+            cli.godot_executable = original_executable
+            cli._warm_fixture = original_warm
+            cli.subprocess.run = original_run
+        assert code == 0
+        assert "# gdextest list: 2 tests" in out
+        assert "suite.one" in out and "suite.two" in out
+        assert "Godot Engine v4.5" not in out
+
+
 if __name__ == "__main__":
     test_structured_config_and_excludes()
     test_toml_unterminated_string_raises()
@@ -955,4 +1205,12 @@ if __name__ == "__main__":
     test_fixture_removed_after_list()
     test_keep_fixture_retains_on_failure_removes_on_success()
     test_remove_fixture_refuses_project_root()
+    test_split_captured_output_classifies_markers()
+    test_extract_list_output_parses_legacy_block()
+    test_cmd_test_renders_clean_report_and_hides_godot_noise()
+    test_cmd_test_report_color_always()
+    test_cmd_test_failed_run_keeps_exit_and_noise_tail()
+    test_cmd_test_crash_without_document_shows_tail()
+    test_cmd_test_verbose_and_raw_log()
+    test_cmd_list_prints_extracted_list()
     print("configuration tests: ok")

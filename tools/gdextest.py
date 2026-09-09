@@ -27,6 +27,10 @@ from gdextest_config import (
     source_pattern_matches,
 )
 
+# The CLI is sometimes imported by file path (tests, wrappers) rather than run
+# as a script; make the sibling-module import work in both cases, mirroring
+# generate_fixture.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gdextest_report import compute_totals, render_report, use_color
 
 
@@ -656,6 +660,87 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 1 if merged["totals"]["fail"] or merged["totals"]["crashed"] else 0
 
 
+# --- captured-output plumbing (M2) -------------------------------------------
+
+# Every line the runner prints on stdout inside the engine process carries this
+# prefix (runner milestone M3), so the CLI can separate framework output from
+# Godot's own chatter in the captured stream. Until M3 lands, the runner's
+# legacy lines are classified as noise and the render path relies on the JSON
+# document instead — which the runner already writes today.
+GDX_TEST_OUTPUT_PREFIX = "GDX_TEST_OUTPUT:"
+
+# Noise lines kept for diagnostics when a run fails or no results document was
+# produced; crash backtraces live in this tail.
+NOISE_TAIL_LINES = 20
+
+
+def _split_captured_output(stdout: str, stderr: str) -> tuple[str, str]:
+    """Split captured engine output into framework-marked and noise lines."""
+    marked: list[str] = []
+    noise: list[str] = []
+
+    def classify(text: str) -> None:
+        for line in text.splitlines():
+            if line.startswith(GDX_TEST_OUTPUT_PREFIX):
+                marked.append(line[len(GDX_TEST_OUTPUT_PREFIX):].lstrip())
+            else:
+                noise.append(line)
+
+    classify(stdout)
+    classify(stderr)
+    return "\n".join(marked), "\n".join(noise)
+
+
+def _noise_tail(stderr: str, stdout: str,
+                limit: int = NOISE_TAIL_LINES) -> list[str]:
+    """The last non-empty engine lines, stderr first: where crash forensics and
+    load-time errors live."""
+    source = stderr.strip("\n") or stdout.strip("\n")
+    lines = [line for line in source.splitlines() if line.strip()]
+    return lines[-limit:]
+
+
+def _print_noise_tail(stderr: str, stdout: str) -> None:
+    tail = _noise_tail(stderr, stdout)
+    if not tail:
+        return
+    print("gdextest: godot output (tail):")
+    for line in tail:
+        print(f"  {line}")
+
+
+def _extract_list_output(text: str) -> list[str]:
+    """Pull the legacy `# gdextest list:` block out of captured engine output.
+
+    The block runs from its header through consecutive space-free lines
+    (suite.name entries); the first spaced line is engine chatter resuming.
+    """
+    out: list[str] = []
+    in_list = False
+    for line in text.splitlines():
+        if line.startswith("# gdextest list:"):
+            in_list = True
+            out.append(line)
+            continue
+        if in_list:
+            if not line.strip():
+                continue
+            if " " in line:
+                break
+            out.append(line)
+    return out
+
+
+def _passthrough_json_path(user_args: list[str]) -> str | None:
+    """The value of a `--gdextest-json=` argument the user passed through, so a
+    raw runner flag still feeds the console report. The argument stays in the
+    list verbatim."""
+    for arg in user_args:
+        if arg.startswith("--gdextest-json="):
+            return arg[len("--gdextest-json="):]
+    return None
+
+
 def _remove_fixture(config: Config) -> None:
     """Delete the disposable fixture project after a run.
 
@@ -687,8 +772,17 @@ def cmd_list(args: argparse.Namespace) -> int:
         _warm_fixture(config, executable)
         user_args = [*getattr(args, "passthrough", []), "--gdextest-list"]
         command = _godot_command(config, executable, *user_args)
-        code = subprocess.run(command, cwd=config.project_root,
-                              env=_run_environment(config)).returncode
+        run_result = subprocess.run(command, cwd=config.project_root,
+                                    env=_run_environment(config),
+                                    capture_output=True, text=True)
+        code = run_result.returncode
+        listed = _extract_list_output(getattr(run_result, "stdout", None) or "")
+        if listed:
+            for line in listed:
+                print(line)
+        else:
+            _print_noise_tail(getattr(run_result, "stderr", None) or "",
+                              getattr(run_result, "stdout", None) or "")
         return code
     finally:
         if getattr(args, "keep_fixture", False) and code != 0:
@@ -735,26 +829,75 @@ def cmd_test(args: argparse.Namespace) -> int:
         passthrough_junit = _extract_junit_passthrough(user_args)
         if passthrough_junit and not junit_path:
             junit_path = passthrough_junit
-        json_path = None
+        temp_json = False
         if args.json:
             # Godot chdirs to the fixture dir (--path), so a relative path would resolve
             # against the fixture, not the user's cwd. Resolve it up front.
             json_path = os.path.abspath(args.json)
             user_args.append(f"--gdextest-json={json_path}")
-        elif junit_path:
-            # JUnit is derived from the runner's JSON document; keep it in a temp file.
-            json_path = os.path.join(tempfile.gettempdir(), f"gdextest-results-{os.getpid()}.json")
-            user_args.append(f"--gdextest-json={json_path}")
+        else:
+            passthrough_json = _passthrough_json_path(user_args)
+            if passthrough_json:
+                json_path = passthrough_json
+            else:
+                # No machine document requested: the runner still needs a JSON
+                # target for the post-run console report; keep it in a temp file.
+                json_path = os.path.join(tempfile.gettempdir(),
+                                         f"gdextest-results-{os.getpid()}.json")
+                user_args.append(f"--gdextest-json={json_path}")
+                temp_json = True
         _warm_fixture(config, executable)
-        code = subprocess.run(_godot_command(config, executable, *user_args),
-                              cwd=config.project_root, env=_run_environment(config)).returncode
+        print("gdextest: running the test suites in Godot (engine output is "
+              "captured; the report follows)", flush=True)
+        run_result = subprocess.run(_godot_command(config, executable, *user_args),
+                                    cwd=config.project_root,
+                                    env=_run_environment(config),
+                                    capture_output=True, text=True)
+        code = run_result.returncode
+        stdout = getattr(run_result, "stdout", None) or ""
+        stderr = getattr(run_result, "stderr", None) or ""
+        marked, _noise = _split_captured_output(stdout, stderr)
+        document = None
+        if json_path and os.path.isfile(json_path):
+            try:
+                with open(json_path, encoding="utf-8") as handle:
+                    document = json.load(handle)
+            except (OSError, ValueError):
+                document = None
         if junit_path and json_path and os.path.isfile(json_path):
             try:
                 _json_to_junit(json_path, os.path.abspath(junit_path))
                 print(f"gdextest: wrote {os.path.abspath(junit_path)}")
             except (OSError, ValueError) as error:
-                print(f"gdextest: warning: could not write JUnit output: {error}", file=sys.stderr)
-        if json_path and not args.json:
+                print(f"gdextest: warning: could not write JUnit output: {error}",
+                      file=sys.stderr)
+        if document is not None:
+            print(render_report(document, color=use_color(getattr(args, "color", None))))
+        elif marked:
+            # Runner markers without a parsable document (the M3 runner path):
+            # the marked lines are the forensics.
+            for line in marked.splitlines():
+                print(line)
+        else:
+            # No document and no markers: the engine died before reporting.
+            _print_noise_tail(stderr, stdout)
+        if getattr(args, "verbose", False):
+            raw = (stdout + stderr).strip("\n")
+            if raw:
+                print("gdextest: godot output (--verbose):")
+                print(raw)
+        raw_log = getattr(args, "raw_log", None)
+        if raw_log:
+            with open(raw_log, "w", encoding="utf-8") as handle:
+                handle.write(stdout)
+                if stderr:
+                    handle.write(stderr)
+            print(f"gdextest: wrote raw godot output to {raw_log}")
+        if code != 0 and document is not None:
+            # Failed run: the report shows the failures; the tail keeps the
+            # engine context (warnings, load messages) for triage.
+            _print_noise_tail(stderr, stdout)
+        if temp_json:
             try:
                 os.unlink(json_path)
             except OSError:
@@ -812,6 +955,12 @@ def main(argv: list[str] | None = None) -> int:
     test.add_argument("--junit", help="also write JUnit XML (converted from the run's JSON)")
     test.add_argument("--keep-fixture", action="store_true",
                       help="keep the fixture project when the run fails (removed on success)")
+    test.add_argument("--color", choices=["auto", "always", "never"], default="auto",
+                      help="colorize the test report (auto: TTY, honoring NO_COLOR/CI)")
+    test.add_argument("--verbose", action="store_true",
+                      help="also print Godot's captured engine output after the report")
+    test.add_argument("--gdextest-raw-log", dest="raw_log", metavar="PATH",
+                      help="write Godot's captured output verbatim to this file")
     test.set_defaults(function=cmd_test)
 
     report = subparsers.add_parser("report", help="merge shard result JSON into one report")

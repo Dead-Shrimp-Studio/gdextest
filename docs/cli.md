@@ -33,6 +33,9 @@ The CLI is the `gdextest` script inside the framework submodule. Run it from you
 | `--json=<path>` | Write the run's JSON document here. The CLI resolves the path to an absolute path before launching Godot. |
 | `--junit=<path>` | Also write JUnit XML, converted from the run's JSON. `--gdextest-junit=<path>` works as a pass-through too. |
 | `--keep-fixture` | Keep the generated fixture project when the run fails. Removed on a green run as usual. |
+| `--color={auto,always,never}` | Colorize the report. `auto` (default): on for a terminal, off when piped or in CI. |
+| `--verbose` | Also print Godot's captured engine output after the report. |
+| `--gdextest-raw-log=<path>` | Write Godot's captured output verbatim to this file. |
 
 Unknown `--gdextest-*` arguments are not rejected by the CLI; `test` passes them through to the runner verbatim, so new runner flags work without a CLI update. Typos still fail: the runner exits `2` on unknown options. Any other unknown argument is a CLI usage error.
 
@@ -89,26 +92,41 @@ Exit happens through `SceneTree::quit(code)`, which propagates to the process ex
 
 ## Human output
 
-Every run prints a summary line and one row per test:
+`gdextest test` captures Godot's output and prints a GoogleTest-style report after the engine exits — engine chatter (banner, import messages, plugin load lines) never mixes into it:
 
 ```text
-== gdextest: 19 passed, 1 failed, 1 skipped ==
-[PASS] string_utils.trim_strips_both_ends  (0 ms)
-[FAIL] counter.bump_increments  (0 ms)
+[==========] Running 21 tests from 3 suites.
+[----------] 4 tests from counter
+[ RUN      ] counter.bump_increments
+[       OK ] counter.bump_increments (0 ms)
+[ RUN      ] counter.reset_clears
+[  FAILED  ] counter.reset_clears (0 ms)
     tests/counter_state_tests.cpp:12: expected bump() == 1
   expected: 1
   actual:   2
-[SKIP] skip_demo.requires_optional_benchmark_service  (0 ms)
-    skipped: precondition not met: GDX_BENCHMARK_SERVICE is unset
-[PASS] self.flaky_test_passes_after_retries  (0 ms)  (retries: 2)
+[----------] 4 tests from counter (12 ms total)
+...
+[==========] 21 tests from 3 suites ran. (118 ms total)
+[  PASSED  ] 19 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] counter.reset_clears
+[ SKIPPED  ] 1 test, listed below:
+[ SKIPPED  ] skip_demo.requires_optional_benchmark_service
 ```
 
-- Failure lines carry `file:line` and the formatted message. Comparison macros print both operands beneath the expression text.
-- Async test rows show wall-clock duration, for example `[PASS] async.timer_await_resumes_after_elapsed_time  (104 ms)`.
-- A test whose wait timed out prints a `timed out` failure line and counts as failed.
-- The `(retries: n)` suffix appears when a `TAG_FLAKY` test needed extra attempts.
+- Tests are grouped per suite in execution order. Durations appear per test, per suite, and in the totals line; `(retries: n)` marks `TAG_FLAKY` tests that needed extra attempts.
+- Failure lines carry `file:line` and the formatted message; comparison macros print both operands beneath the expression text. A timed-out async wait renders as a failed test whose message contains `timed out`.
+- On a green run the failure and skip epilogues are omitted entirely.
+- Passing lines are green, failures red, skips yellow when the report goes to a terminal. `--color={auto,always,never}` overrides the default `auto` mode: colors turn off when piped or in CI, honoring `NO_COLOR` and `CLICOLOR_FORCE`.
 
-`--gdextest-list` prints:
+### Engine output and crash forensics
+
+- Godot's captured output is suppressed by default. `--verbose` prints it after the report; `--gdextest-raw-log=<path>` writes it verbatim to a file.
+- A failed run appends the last engine lines as `gdextest: godot output (tail)` — load-time errors and warnings usually live there.
+- If the engine dies before writing the results document (segfault, OOM kill), no results are faked: the CLI prints the noise tail instead and propagates the process exit code.
+- Runs that drive the Godot binary directly (see the examples below) bypass the CLI, so Godot's and the runner's output both appear unfiltered on the console; the captured-and-rendered report is the `gdextest test` surface.
+
+`--gdextest-list` prints the selected tests and captures the engine launch output:
 
 ```text
 # gdextest list: 15 tests selected
