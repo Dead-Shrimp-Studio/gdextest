@@ -17,6 +17,7 @@ exclude = ["tests/helpers/**"]
 timeout_ms = 30000
 isolate_timeout_sec = 60
 flaky_retries = 3
+color = "auto"
 
 [gdextest.host]
 mode = "editor"
@@ -68,8 +69,11 @@ A pattern that matches nothing fails the build with the pattern named. Everythin
 | `timeout_ms` | `30000` | Per-wait timeout for async waits. Forwarded as `--gdextest-timeout-ms`. |
 | `isolate_timeout_sec` | `60` | Whole-test budget for one async test. Forwarded as `--gdextest-isolate-timeout-sec`. |
 | `flaky_retries` | `3` | Extra attempts for `TAG_FLAKY` tests. Forwarded as `--gdextest-flaky-retries`. |
+| `report` | `"cli"` | In-engine console layout. `"cli"` (default) means the CLI renders the report itself and forces the quiet engine; `"quiet"`/`"pretty"` choose the runner's own marker-prefixed layout for the captured lines. Only observable when driving Godot directly. Forwarded as `--gdextest-report`. |
+| `color` | `"auto"` | Console report colors: `auto` (terminal-aware), `always`, or `never`. The `--color` flag overrides. |
+| `raw_log` | unset | Write Godot's captured output verbatim to this file on every run. The `--gdextest-raw-log` flag overrides. |
 
-The CLI forwards these on every run, so CI can tune budgets without rebuilding the framework.
+The CLI forwards the budgets on every run, so CI can tune them without rebuilding the framework. The console keys (`report`, `color`, `raw_log`) have CLI-flag counterparts that win when set.
 
 ### `[gdextest.host]`
 
@@ -137,6 +141,7 @@ The loader is a small, dependency-free TOML subset:
 - `entry_symbol` and `plugin_class` are valid identifiers.
 - `build.args` entries are `key=value`.
 - Budgets are positive; `flaky_retries` is zero or more.
+- `report` is `cli`, `quiet`, or `pretty`; `color` is `auto`, `always`, or `never`.
 - `consumer_extension` sets both files or neither, unless derivation succeeds.
 
 A failed validation exits `2` before SCons or Godot starts.

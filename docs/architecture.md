@@ -11,7 +11,7 @@ This page explains how gdextest is built and why. Read it when you want to chang
 
 ## The execution model
 
-Suites register themselves in a static registry when the test shared object loads. The fixture Godot project enables an editor plugin that instantiates a native host node. The adapter checks for a run trigger, bootstraps host services, and hands the live tree node to the runner. The runner parses the `--gdextest-*` options, selects tests, runs them (sync bodies inline, async bodies through a frame pump), prints results, and quits the engine with a status code.
+Suites register themselves in a static registry when the test shared object loads. The fixture Godot project enables an editor plugin that instantiates a native host node. The adapter checks for a run trigger, bootstraps host services, and hands the live tree node to the runner. The runner parses the `--gdextest-*` options, selects tests, runs them (sync bodies inline, async bodies through a frame pump), writes the JSON results document, reports a marker-prefixed summary (`GDX_TEST_OUTPUT:` lines — quiet by default, `--gdextest-report=pretty` restores the human layout), and quits the engine with a status code. The CLI renders the human report from the JSON after the engine exits.
 
 ```text
 +----------------+      +--------------------+      +------------------+

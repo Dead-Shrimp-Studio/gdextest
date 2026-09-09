@@ -12,7 +12,7 @@ It runs your test suites **inside a real, headless Godot process**. You compile 
 - **Signal monitoring.** Watch any object's signals, count emissions, and inspect the arguments of every emission.
 - **Resource checks.** Track Godot objects and `RefCounted` references. The framework fails the test when they leak.
 - **One command.** `gdextest test` builds, generates the fixture, launches Godot, and returns `0` or `1`.
-- **CI-friendly output.** Human summary, JSON, and JUnit XML. Filtering, sharding, and shard merging are built in.
+- **CI-friendly output.** JSON and JUnit XML, plus a clean GoogleTest-style console report rendered after the engine exits. Filtering, sharding, and shard merging are built in.
 - **Zero footprint in release.** The framework compiles only into the test build. Release builds never see it.
 
 ## A 60-second example

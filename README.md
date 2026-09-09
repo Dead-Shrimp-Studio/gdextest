@@ -10,7 +10,7 @@ A C++ testing framework for [Godot](https://godotengine.org) GDExtensions. You w
 - **Leak checks.** Track Godot objects and `RefCounted` references. The framework fails the test when they survive teardown.
 - **Lifecycle hooks.** `configure_host` callbacks plus any number of `ExtensionAdapter`s cover extension-specific startup and shutdown without touching the runner.
 - **One command.** `gdextest test` builds, generates the fixture, launches Godot, and quits with `0` or `1`. It works on a fresh clone without touching your `SConstruct`.
-- **CI-ready output.** Human summary, JSON, and JUnit XML. Filtering, stable-hash sharding, seeded shuffling, and shard merging are built in.
+- **CI-ready output.** JSON and JUnit XML, plus a clean GoogleTest-style console report with colored pass/fail lines — rendered by the CLI after the engine exits, so Godot's own output never mangles it. Filtering, stable-hash sharding, seeded shuffling, and shard merging are built in.
 - **Two host modes.** Editor mode hooks a scan-safe `EditorPlugin`; runtime mode uses a plain autoload for runtime-only extensions.
 - **Zero release footprint.** Everything compiles only when `GDEXTEST_ENABLED` is defined. Release builds never see it.
 
@@ -162,7 +162,7 @@ The full documentation lives in [`docs/`](docs/README.md):
 - Suites register in a pure C++ registry at static-initialization time. The core never touches Godot types there.
 - Only a small engine boundary touches godot-cpp: the runner, `engine.h`, `strings.h`, `signals.h`, and the entry/adapter sources.
 - The fixture loads the test library in editor mode (`--headless --editor`). The plugin waits for the editor's first filesystem scan, then the adapter checks the trigger (`--gdextest-run` or `GDX_RUN_TESTS`) and starts the run.
-- The runner prints results and exits through `SceneTree::quit(code)` — `0` pass, `1` failure, `2` usage error.
+- The runner writes the JSON results document before anything else, then exits through `SceneTree::quit(code)` — `0` pass, `1` failure, `2` usage error. Its own console lines are marker-prefixed (`GDX_TEST_OUTPUT:`) and the CLI renders the human report from the JSON after the engine exits, so Godot's banner and load chatter never interleave with test results.
 - `user://` stays hermetic: the CLI wipes `build/gdextest/user-data` before every run and points `XDG_DATA_HOME` at it. The fixture project is disposable and removed after every run.
 
 ## Repository layout

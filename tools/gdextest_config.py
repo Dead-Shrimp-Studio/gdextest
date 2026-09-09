@@ -49,6 +49,13 @@ class Config:
     timeout_ms: int = 30000
     isolate_timeout_sec: int = 60
     flaky_retries: int = 3
+    # Console reporting (see .plans/gtest-style-console-output.md). "cli" keeps
+    # the engine's own behavior (direct-Godot runs render the quiet marker
+    # layout); the CLI always overrides to "quiet" and renders the report
+    # itself after the engine exits.
+    report: str = "cli"
+    color: str = "auto"
+    raw_log: str = ""
     ci_provider: str = "github"
 
     @property
@@ -84,6 +91,12 @@ class Config:
             errors.append(f"isolate_timeout_sec must be positive, got {self.isolate_timeout_sec}")
         if self.flaky_retries < 0:
             errors.append(f"flaky_retries must be >= 0, got {self.flaky_retries}")
+        if self.report not in ("cli", "quiet", "pretty"):
+            errors.append(
+                f'report must be one of ["cli", "pretty", "quiet"], got {self.report!r}')
+        if self.color not in ("auto", "always", "never"):
+            errors.append(
+                f'color must be one of ["auto", "always", "never"], got {self.color!r}')
         if self.scan_timeout_ms <= 0:
             errors.append(f"scan_timeout_ms must be positive, got {self.scan_timeout_ms}")
         if self.extension_library and not self.extension_manifest:
@@ -306,6 +319,9 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
         timeout_ms=int(_first(test, "timeout_ms", default=_first(values, "timeout_ms", default=30000))),
         isolate_timeout_sec=int(_first(test, "isolate_timeout_sec", default=_first(values, "isolate_timeout_sec", default=60))),
         flaky_retries=int(_first(test, "flaky_retries", default=_first(values, "flaky_retries", default=3))),
+        report=str(_first(test, "report", default=_first(values, "report", default="cli"))),
+        color=str(_first(test, "color", default=_first(values, "color", default="auto"))),
+        raw_log=str(_first(test, "raw_log", default=_first(values, "raw_log", default=""))),
         ci_provider=str(_first(values, "ci_provider", default="github")),
     )
     return config

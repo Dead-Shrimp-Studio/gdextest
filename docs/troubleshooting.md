@@ -77,6 +77,15 @@ Listing needs a run trigger. The CLI's `list` command builds and starts Godot, b
 GDX_RUN_TESTS=1 ./extern/gdextest/gdextest list
 ```
 
+### Where did my test output go?
+
+`gdextest test` captures everything the Godot process prints, renders the GoogleTest-style report after the engine exits, and discards Godot's own chatter (banner, import and load messages) by default. If you expected engine output:
+
+1. `--verbose` echoes the full captured engine output after the report.
+2. `--gdextest-raw-log=<path>` (or `[gdextest.test]` `raw_log` in `.gdextest.toml`) writes it verbatim to a file.
+3. A failed run appends the last engine lines as `gdextest: godot output (tail)` automatically.
+4. Driving Godot directly bypasses all of this: the runner's lines appear with a `GDX_TEST_OUTPUT:` prefix, with no CLI report.
+
 ### Exit code `2` with a message about an option
 
 Usage errors exit `2`: a malformed value (`--gdextest-shard=xyz`), a shard outside `[0, n)`, or an unknown `--gdextest-*` option. The message names the offending option. Check the flag spelling against [CLI reference](cli.md).
@@ -110,4 +119,5 @@ Read the JSON `totals` (`pass`, `fail`, `skip`, `crashed`) instead of the exit c
 - `gdextest doctor --godot /path/to/Godot` — environment diagnostics without a build.
 - `gdextest test --keep-fixture` — keep the generated fixture when the run fails, so you can open or re-run it.
 - `--json=results.json` — exact per-test status, duration, retries, and failure file/line/message.
+- `--gdextest-raw-log=godot.log` — Godot's captured output verbatim, for debugging the engine side of a run.
 - `godot --headless --editor --path build/gdextest/project -- --gdextest-run` — re-run the kept fixture by hand with full engine output.

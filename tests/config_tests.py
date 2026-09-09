@@ -955,6 +955,48 @@ def test_scan_timeout_config_parses() -> None:
         assert config.scan_timeout_ms == 90000
 
 
+def test_report_output_config_keys_parse() -> None:
+    """[gdextest.test] report/color/raw_log parse with "cli"/"auto"/"" defaults."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "SConstruct").write_text("", encoding="utf-8")
+        (root / ".gdextest.toml").write_text(
+            "[gdextest]\ngodot_version = \"4.5\"\n"
+            "[gdextest.test]\n"
+            'report = "pretty"\n'
+            'color = "never"\n'
+            'raw_log = "build/godot-output.log"\n',
+            encoding="utf-8",
+        )
+        config = config_module.load_config(root)
+        assert config.report == "pretty"
+        assert config.color == "never"
+        assert config.raw_log == "build/godot-output.log"
+        # Defaults when the keys are absent.
+        bare = config_module.load_config(_consumer_root(tempfile.mkdtemp()))
+        assert bare.report == "cli"
+        assert bare.color == "auto"
+        assert bare.raw_log == ""
+
+
+def test_report_output_config_keys_validate() -> None:
+    """Invalid report/color values fail validation with the value named."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "SConstruct").write_text("", encoding="utf-8")
+        (root / ".gdextest.toml").write_text(
+            "[gdextest]\ngodot_version = \"4.5\"\n"
+            "[gdextest.test]\n"
+            'report = "loud"\n'
+            'color = "maybe"\n',
+            encoding="utf-8",
+        )
+        config = config_module.load_config(root)
+        errors = config.validate()
+        assert any("report" in error and "loud" in error for error in errors)
+        assert any("color" in error and "maybe" in error for error in errors)
+
+
 def _godot_run_stub(stdout: str = "", stderr: str = "", returncode: int = 0,
                     document: dict | None = None):
     """A subprocess.run stub for the Godot invocation: returns a captured result
@@ -1130,6 +1172,102 @@ def test_cmd_test_report_color_always() -> None:
         assert "\x1b[32m[       OK ] smoke.one" in out
 
 
+def test_cmd_test_report_config_defaults_and_overrides() -> None:
+    """[gdextest.test] report/color/raw_log flow into cmd_test; the CLI flags
+    win where they are more specific (explicit --color, --gdextest-raw-log)."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        (root / ".gdextest.toml").write_text(
+            "[gdextest]\ngodot_version = \"4.5\"\n"
+            "[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\n"
+            "[gdextest.test]\n"
+            'report = "pretty"\n'
+            'color = "never"\n'
+            f'raw_log = "{root / "from-config.log"}"\n',
+            encoding="utf-8",
+        )
+        document = {"totals": {"pass": 1, "fail": 0, "skip": 0, "crashed": 0},
+                    "results": [
+                        {"suite": "smoke", "name": "one", "status": "pass",
+                         "duration_ms": 0, "retries": 0, "failures": []},
+                    ]}
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None, json=None, junit=None,
+            passthrough=[], keep_fixture=False, color="auto", verbose=False,
+            raw_log=None)
+        saved = _stub_cmd_test_deps(cli)
+        captured_args = []
+        try:
+            cli._godot_command = lambda config, executable, *user_args: (
+                captured_args.append(user_args) or ["godot", *user_args])
+            cli.subprocess.run = _godot_run_stub(stdout=_ENGINE_NOISE,
+                                                 document=document)
+            with tempfile.TemporaryDirectory() as flag_log_dir:
+                # 1. Config wins for all three keys (flags unset/auto).
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer):
+                    assert cli.cmd_test(args) == 0
+                out = buffer.getvalue()
+                forwarded = captured_args[-1]
+                assert "--gdextest-report=pretty" in forwarded, (
+                    "config report=pretty must be forwarded to the runner")
+                assert "\x1b[" not in out, "config color=never must disable ANSI"
+                raw_log = root / "from-config.log"
+                assert raw_log.is_file(), "config raw_log must be honored"
+                assert "Godot Engine v4.5" in raw_log.read_text(encoding="utf-8")
+                raw_log.unlink()
+                # 2. Explicit CLI flags win over the config.
+                flag_log = Path(flag_log_dir) / "from-flag.log"
+                args.color = "always"
+                args.raw_log = str(flag_log)
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer):
+                    assert cli.cmd_test(args) == 0
+                out = buffer.getvalue()
+                assert "\x1b[32m[       OK ] smoke.one" in out, (
+                    "explicit --color=always must override config color=never")
+                assert flag_log.is_file(), "--gdextest-raw-log must override config"
+                assert not (root / "from-config.log").exists(), (
+                    "the config raw_log must not be written when the flag names a path")
+        finally:
+            _restore_cmd_test_deps(cli, saved)
+
+
+def test_cmd_test_report_config_cli_forces_quiet_engine() -> None:
+    """report = "cli" (the default) must still forward --gdextest-report=quiet:
+    the CLI renders the report itself, the engine stays quiet."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(directory)
+        document = {"totals": {"pass": 1, "fail": 0, "skip": 0, "crashed": 0},
+                    "results": [
+                        {"suite": "smoke", "name": "one", "status": "pass",
+                         "duration_ms": 0, "retries": 0, "failures": []},
+                    ]}
+        args = cli.argparse.Namespace(
+            project_root=root, framework_dir=None, godot="/usr/bin/godot",
+            filter=None, shard=None, shuffle=None, json=None, junit=None,
+            passthrough=[], keep_fixture=False, color="auto", verbose=False,
+            raw_log=None)
+        saved = _stub_cmd_test_deps(cli)
+        captured_args = []
+        try:
+            cli._godot_command = lambda config, executable, *user_args: (
+                captured_args.append(user_args) or ["godot", *user_args])
+            cli.subprocess.run = _godot_run_stub(stdout=_ENGINE_NOISE,
+                                                 document=document)
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                assert cli.cmd_test(args) == 0
+            out = buffer.getvalue()
+        finally:
+            _restore_cmd_test_deps(cli, saved)
+        forwarded = captured_args[-1]
+        assert "--gdextest-report=quiet" in forwarded
+        assert "[==========] Running 1 test from 1 suite." in out
+        assert "Godot Engine v4.5" not in out
+
+
 def test_cmd_test_failed_run_keeps_exit_and_noise_tail() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = _consumer_root(directory)
@@ -1299,6 +1437,10 @@ if __name__ == "__main__":
     test_cmd_test_marker_forensics_without_document()
     test_cmd_test_renders_clean_report_and_hides_godot_noise()
     test_cmd_test_report_color_always()
+    test_report_output_config_keys_parse()
+    test_report_output_config_keys_validate()
+    test_cmd_test_report_config_defaults_and_overrides()
+    test_cmd_test_report_config_cli_forces_quiet_engine()
     test_cmd_test_failed_run_keeps_exit_and_noise_tail()
     test_cmd_test_crash_without_document_shows_tail()
     test_cmd_test_verbose_and_raw_log()

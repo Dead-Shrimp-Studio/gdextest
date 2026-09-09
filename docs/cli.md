@@ -33,9 +33,9 @@ The CLI is the `gdextest` script inside the framework submodule. Run it from you
 | `--json=<path>` | Write the run's JSON document here. The CLI resolves the path to an absolute path before launching Godot. |
 | `--junit=<path>` | Also write JUnit XML, converted from the run's JSON. `--gdextest-junit=<path>` works as a pass-through too. |
 | `--keep-fixture` | Keep the generated fixture project when the run fails. Removed on a green run as usual. |
-| `--color={auto,always,never}` | Colorize the report. `auto` (default): on for a terminal, off when piped or in CI. |
+| `--color={auto,always,never}` | Colorize the report. Default: `[gdextest.test]` `color`, then `auto` (on for a terminal, off when piped or in CI). |
 | `--verbose` | Also print Godot's captured engine output after the report. |
-| `--gdextest-raw-log=<path>` | Write Godot's captured output verbatim to this file. |
+| `--gdextest-raw-log=<path>` | Write Godot's captured output verbatim to this file. Default: `[gdextest.test]` `raw_log`. |
 
 Unknown `--gdextest-*` arguments are not rejected by the CLI; `test` passes them through to the runner verbatim, so new runner flags work without a CLI update. Typos still fail: the runner exits `2` on unknown options. Any other unknown argument is a CLI usage error.
 
@@ -121,11 +121,11 @@ Exit happens through `SceneTree::quit(code)`, which propagates to the process ex
 - Tests are grouped per suite in execution order. Durations appear per test, per suite, and in the totals line; `(retries: n)` marks `TAG_FLAKY` tests that needed extra attempts.
 - Failure lines carry `file:line` and the formatted message; comparison macros print both operands beneath the expression text. A timed-out async wait renders as a failed test whose message contains `timed out`.
 - On a green run the failure and skip epilogues are omitted entirely.
-- Passing lines are green, failures red, skips yellow when the report goes to a terminal. `--color={auto,always,never}` overrides the default `auto` mode: colors turn off when piped or in CI, honoring `NO_COLOR` and `CLICOLOR_FORCE`.
+- Passing lines are green, failures red, skips yellow when the report goes to a terminal. The mode comes from `[gdextest.test]` `color` by default; `--color={auto,always,never}` overrides it. `auto` turns colors off when piped or in CI, honoring `NO_COLOR` and `CLICOLOR_FORCE`.
 
 ### Engine output and crash forensics
 
-- Godot's captured output is suppressed by default. `--verbose` prints it after the report; `--gdextest-raw-log=<path>` writes it verbatim to a file.
+- Godot's captured output is suppressed by default. `--verbose` prints it after the report; `--gdextest-raw-log=<path>` (or `[gdextest.test]` `raw_log`) writes it verbatim to a file.
 - A failed run appends the last engine lines as `gdextest: godot output (tail)` — load-time errors and warnings usually live there.
 - If the engine dies before writing the results document (segfault, OOM kill), no results are faked: the CLI prints the noise tail instead and propagates the process exit code.
 - Runs that drive the Godot binary directly (see the examples below) bypass the CLI, so Godot's output appears unfiltered on the console. The runner's own lines are each prefixed with `GDX_TEST_OUTPUT:` and stay grep-able; `--gdextest-report=pretty` restores the human layout. The captured-and-rendered report is the `gdextest test` surface.

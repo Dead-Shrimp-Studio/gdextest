@@ -50,6 +50,7 @@ plugin_class = "GdextestPlugin"
 timeout_ms = 30000
 isolate_timeout_sec = 60
 flaky_retries = 3
+color = "auto"
 
 [gdextest.fixture]
 directory = "build/gdextest/project"
@@ -872,8 +873,12 @@ def cmd_test(args: argparse.Namespace) -> int:
             user_args.append(f"--gdextest-report-path={report_path}")
         # Quiet in-engine stdout: the report is rendered here from the JSON,
         # not inside the engine. Every runner line is marker-prefixed, so
-        # captured output stays separable regardless.
-        user_args.append("--gdextest-report=quiet")
+        # captured output stays separable regardless. [gdextest.test] report =
+        # "quiet"|"pretty" chooses the runner's own layout for the captured
+        # lines; "cli" (the default) always forces quiet since the report is
+        # rendered below from the JSON document.
+        engine_report = config.report if config.report in ("quiet", "pretty") else "quiet"
+        user_args.append(f"--gdextest-report={engine_report}")
         _warm_fixture(config, executable)
         print("gdextest: running the test suites in Godot (engine output is "
               "captured; the report follows)", flush=True)
@@ -901,7 +906,12 @@ def cmd_test(args: argparse.Namespace) -> int:
                 print(f"gdextest: warning: could not write JUnit output: {error}",
                       file=sys.stderr)
         if document is not None:
-            print(render_report(document, color=use_color(getattr(args, "color", None))))
+            # --color wins over [gdextest.test] color; "auto" (flag default
+            # and config default) falls through to the TTY/env probe.
+            color_mode = getattr(args, "color", None)
+            if color_mode in (None, "auto"):
+                color_mode = config.color
+            print(render_report(document, color=use_color(color_mode)))
         elif marked:
             # Runner markers without a parsable document (engine died during
             # reporting): the marked lines are the forensics.
@@ -915,7 +925,8 @@ def cmd_test(args: argparse.Namespace) -> int:
             if raw:
                 print("gdextest: godot output (--verbose):")
                 print(raw)
-        raw_log = getattr(args, "raw_log", None)
+        # Flag wins; empty config value (the default) means unset.
+        raw_log = getattr(args, "raw_log", None) or config.raw_log or None
         if raw_log:
             with open(raw_log, "w", encoding="utf-8") as handle:
                 handle.write(stdout)
@@ -986,11 +997,13 @@ def main(argv: list[str] | None = None) -> int:
     test.add_argument("--keep-fixture", action="store_true",
                       help="keep the fixture project when the run fails (removed on success)")
     test.add_argument("--color", choices=["auto", "always", "never"], default="auto",
-                      help="colorize the test report (auto: TTY, honoring NO_COLOR/CI)")
+                      help="colorize the test report (default: [gdextest.test] color, "
+                           "then auto: TTY, honoring NO_COLOR/CI)")
     test.add_argument("--verbose", action="store_true",
                       help="also print Godot's captured engine output after the report")
     test.add_argument("--gdextest-raw-log", dest="raw_log", metavar="PATH",
-                      help="write Godot's captured output verbatim to this file")
+                      help="write Godot's captured output verbatim to this file "
+                           "(default: [gdextest.test] raw_log)")
     test.set_defaults(function=cmd_test)
 
     report = subparsers.add_parser("report", help="merge shard result JSON into one report")

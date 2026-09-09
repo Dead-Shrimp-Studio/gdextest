@@ -232,7 +232,7 @@ GDEX_TEST(skip_demo, requires_optional_benchmark_service) {
 
 - A skipped test counts in the `skip` totals, never as a pass or a failure.
 - It never changes the exit code.
-- The human output shows `[SKIP]` with the reason; JSON reports status `skipped` with a `reason` field.
+- The console report shows `[ SKIPPED ]` with the reason (and re-lists skips after the run); JSON reports status `skipped` with a `reason` field.
 - Control never continues past the call.
 
 Use skipping for preconditions the machine controls: missing services, timing sensitivity, platform limits.
