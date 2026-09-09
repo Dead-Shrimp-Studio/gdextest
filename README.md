@@ -1,5 +1,7 @@
 # gdextest — GDExtension testing framework
 
+[![ci](https://github.com/Dead-Shrimp-Studio/gdextension-test-framework/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/Dead-Shrimp-Studio/gdextension-test-framework/actions/workflows/ci.yml)
+
 A C++ testing framework for [Godot](https://godotengine.org) GDExtensions. You write googletest-style suites in plain C++. gdextest compiles them into a test-only shared object, loads it in a real (headless) Godot process through a generated fixture project, and reports pass/fail through the process exit code. No separate runner binary, no scripting layer, no changes to your release build.
 
 ## Why gdextest
