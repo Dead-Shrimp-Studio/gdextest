@@ -244,7 +244,8 @@ if generate_fixture:
     project_name = gdextest.get("project_name", toml_config.project_name)
     entry_symbol = gdextest.get("entry_symbol", toml_config.entry_symbol)
     plugin_class = gdextest.get("plugin_class", toml_config.plugin_class)
-    godot_version = gdextest.get("godot_version", toml_config.godot_version)
+    minimum_required_godot_version = gdextest.get(
+        "minimum_required_godot_version", toml_config.minimum_required_godot_version)
     host_mode = gdextest.get("host_mode", _env("gdextest_HOST_MODE", toml_config.host_mode))
     if host_mode not in ("editor", "runtime"):
         raise UserError(f"gdextest: unsupported host_mode {host_mode!r} (expected 'editor' or 'runtime')")
@@ -287,7 +288,7 @@ if generate_fixture:
             entry_symbol=entry_symbol,
             plugin_class=plugin_class,
             project_name=project_name,
-            godot_version=godot_version,
+            godot_version=minimum_required_godot_version,
             library_key=library_key,
             native_extensions=gdextest.get("native_extensions", toml_config.native_extensions),
             extension_library=gdextest.get("extension_library", toml_config.extension_library),

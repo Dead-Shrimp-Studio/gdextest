@@ -65,7 +65,7 @@ def test_structured_config_and_excludes() -> None:
         (root / "tests" / "unit" / "one.cpp").write_text("", encoding="utf-8")
         (root / "tests" / "generated" / "two.cpp").write_text("", encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\nexclude = [\"tests/generated\"]\n[gdextest.host]\nmode = \"runtime\"\n""",
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\nexclude = [\"tests/generated\"]\n[gdextest.host]\nmode = \"runtime\"\n""",
             encoding="utf-8",
         )
         config = config_module.load_config(root)
@@ -131,7 +131,7 @@ def test_extension_sources_resolve_alongside_suites() -> None:
         # Vendored C dependency (e.g. md4c) must also resolve.
         (root / "src" / "text" / "md4c.c").write_text("", encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            '[gdextest]\ngodot_version = "4.5"\n[gdextest.tests]\n'
+            '[gdextest]\nminimum_required_godot_version = "4.5"\n[gdextest.tests]\n'
             'sources = ["tests/**/*.cpp", "src/**/*.cpp", "src/**/*.c"]\n',
             encoding="utf-8")
         config = config_module.load_config(root)
@@ -151,7 +151,7 @@ def test_zero_match_source_pattern_raises() -> None:
         (root / "tests").mkdir()
         (root / "tests" / "suite.cpp").write_text("", encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            '[gdextest]\ngodot_version = "4.5"\n[gdextest.tests]\n'
+            '[gdextest]\nminimum_required_godot_version = "4.5"\n[gdextest.tests]\n'
             'sources = ["tests/**/*.cpp", "src/**/*.cpp"]\n',
             encoding="utf-8")
         config = config_module.load_config(root)
@@ -176,7 +176,7 @@ def test_doctor_reports_zero_match_pattern() -> None:
         root = _consumer_root(directory)
         (root / "src").mkdir()
         (root / ".gdextest.toml").write_text(
-            '[gdextest]\ngodot_version = "4.5"\n[gdextest.tests]\n'
+            '[gdextest]\nminimum_required_godot_version = "4.5"\n[gdextest.tests]\n'
             'sources = ["tests/**/*.cpp", "src/**/*.cpp"]\n',
             encoding="utf-8")
         config = config_module.load_config(root)
@@ -216,7 +216,7 @@ def test_doctor_rejects_empty_source_set() -> None:
         (root / "extern" / "gdextest").mkdir(parents=True)
         (root / "extern" / "gdextest" / "SConscript").write_text("", encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\n""",
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\n""",
             encoding="utf-8",
         )
         config = config_module.load_config(root)
@@ -394,7 +394,7 @@ def test_scons_command_includes_build_args() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n[gdextest.build]\nargs = [\"platform=linux\", \"target=editor\"]\n""",
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n[gdextest.build]\nargs = [\"platform=linux\", \"target=editor\"]\n""",
             encoding="utf-8",
         )
         config = config_module.load_config(root)
@@ -444,7 +444,7 @@ def test_extension_manifest_derived_from_library() -> None:
         (addon / "gcs.gdextension").write_text(
             '[configuration]\nentry_symbol = "gcs_library_init"\n', encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n"""
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n"""
             "[gdextest.consumer_extension]\n"
             'library = "addons/gcs/bin/libgcs.linux.editor.x86_64.so"\n',
             encoding="utf-8",
@@ -468,7 +468,7 @@ def test_extension_library_derived_from_manifest() -> None:
             encoding="utf-8",
         )
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n"""
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n"""
             "[gdextest.consumer_extension]\n"
             'manifest = "addons/gcs/gcs.gdextension"\n',
             encoding="utf-8",
@@ -488,7 +488,7 @@ def test_extension_pair_still_validates_when_derivation_ambiguous() -> None:
         (addon / "gcs.gdextension").write_text("", encoding="utf-8")
         (addon / "bin" / "other.gdextension").write_text("", encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n"""
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n"""
             "[gdextest.consumer_extension]\n"
             'library = "addons/gcs/bin/libgcs.so"\n',
             encoding="utf-8",
@@ -616,7 +616,7 @@ def test_remove_fixture_refuses_project_root() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n[gdextest.fixture]\ndirectory = \".\"\n""",
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n[gdextest.fixture]\ndirectory = \".\"\n""",
             encoding="utf-8",
         )
         config = config_module.load_config(root)
@@ -670,7 +670,7 @@ def test_scaffold_apply_wires_and_generates() -> None:
         (root / "extern" / "gdextest").mkdir(parents=True)
         (root / "extern" / "gdextest" / "SConscript").write_text("", encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\n[gdextest.host]\nentry_symbol = \"my_library_init\"\nplugin_class = \"MyTestPlugin\"\n""",
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\n[gdextest.host]\nentry_symbol = \"my_library_init\"\nplugin_class = \"MyTestPlugin\"\n""",
             encoding="utf-8",
         )
         args = cli.argparse.Namespace(
@@ -777,7 +777,7 @@ def test_timeout_budgets_forwarded_from_toml() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = _consumer_root(directory)
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\n[gdextest.test]\ntimeout_ms = 5000\nisolate_timeout_sec = 120\nflaky_retries = 5\n""",
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\n[gdextest.test]\ntimeout_ms = 5000\nisolate_timeout_sec = 120\nflaky_retries = 5\n""",
             encoding="utf-8",
         )
         config = config_module.load_config(root)
@@ -922,6 +922,43 @@ def test_doctor_godot_cpp_version_checks() -> None:
             cli.godot_cpp_version = original_cpp
 
 
+def test_version_at_least_accepts_higher_binaries() -> None:
+    """The Godot check is a floor, so a newer binary is valid."""
+    at_least = config_module.version_at_least
+    assert at_least("4.5", "4.5") is True     # exact minimum passes
+    assert at_least("4.5.3", "4.5") is True   # patch above minimum passes
+    assert at_least("4.6", "4.5") is True      # newer minor passes
+    assert at_least("5.0", "4.5") is True      # newer major passes
+    assert at_least("4.4", "4.5") is False     # below minimum fails
+    assert at_least("", "4.5") is False        # unparseable fails
+
+
+def test_doctor_enforces_minimum_godot_without_capping_high() -> None:
+    """Doctor passes binaries at or above the minimum and rejects lower ones."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = _consumer_root(
+            directory, sconstruct='env = Environment()\nenv.SConscript("extern/gdextest/SConscript")\n')
+        config = config_module.load_config(root)
+        original_which = cli.shutil.which
+        original_godot = cli.godot_executable
+        original_version = cli.godot_version
+        original_cpp = cli.godot_cpp_version
+        try:
+            cli.shutil.which = lambda name: "/usr/bin/scons" if name == "scons" else None
+            cli.godot_executable = lambda config, override: "/usr/bin/godot"
+            cli.godot_cpp_version = lambda root: "4.5"
+            # A newer binary is valid; a lower one is not.
+            cli.godot_version = lambda executable: "4.6"
+            assert cli._run_doctor(config, "/usr/bin/godot") == 0
+            cli.godot_version = lambda executable: "4.4"
+            assert cli._run_doctor(config, "/usr/bin/godot") == 2
+        finally:
+            cli.shutil.which = original_which
+            cli.godot_executable = original_godot
+            cli.godot_version = original_version
+            cli.godot_cpp_version = original_cpp
+
+
 def test_warm_fixture_runs_only_when_cold() -> None:
     """The first-run cache warmup runs once, then is skipped on warm fixtures."""
     with tempfile.TemporaryDirectory() as directory:
@@ -948,7 +985,7 @@ def test_scan_timeout_config_parses() -> None:
         root = Path(directory)
         (root / "SConstruct").write_text("", encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            """[gdextest]\ngodot_version = \"4.5\"\n[gdextest.fixture]\nscan_timeout_ms = 90000\n""",
+            """[gdextest]\nminimum_required_godot_version = \"4.5\"\n[gdextest.fixture]\nscan_timeout_ms = 90000\n""",
             encoding="utf-8",
         )
         config = config_module.load_config(root)
@@ -961,7 +998,7 @@ def test_report_output_config_keys_parse() -> None:
         root = Path(directory)
         (root / "SConstruct").write_text("", encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            "[gdextest]\ngodot_version = \"4.5\"\n"
+            "[gdextest]\nminimum_required_godot_version = \"4.5\"\n"
             "[gdextest.test]\n"
             'report = "pretty"\n'
             'color = "never"\n'
@@ -985,7 +1022,7 @@ def test_report_output_config_keys_validate() -> None:
         root = Path(directory)
         (root / "SConstruct").write_text("", encoding="utf-8")
         (root / ".gdextest.toml").write_text(
-            "[gdextest]\ngodot_version = \"4.5\"\n"
+            "[gdextest]\nminimum_required_godot_version = \"4.5\"\n"
             "[gdextest.test]\n"
             'report = "loud"\n'
             'color = "maybe"\n',
@@ -1178,7 +1215,7 @@ def test_cmd_test_report_config_defaults_and_overrides() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = _consumer_root(directory)
         (root / ".gdextest.toml").write_text(
-            "[gdextest]\ngodot_version = \"4.5\"\n"
+            "[gdextest]\nminimum_required_godot_version = \"4.5\"\n"
             "[gdextest.tests]\nsources = [\"tests/**/*.cpp\"]\n"
             "[gdextest.test]\n"
             'report = "pretty"\n'
@@ -1421,6 +1458,8 @@ if __name__ == "__main__":
     test_report_merges_shard_documents()
     test_godot_discovery_finds_nearby_binary()
     test_doctor_godot_cpp_version_checks()
+    test_version_at_least_accepts_higher_binaries()
+    test_doctor_enforces_minimum_godot_without_capping_high()
     test_scan_timeout_config_parses()
     test_warm_fixture_runs_only_when_cold()
     test_extension_manifest_derived_from_library()

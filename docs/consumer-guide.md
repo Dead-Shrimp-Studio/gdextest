@@ -105,7 +105,7 @@ Useful variants:
 ```toml
 [gdextest]
 version = "1"
-godot_version = "4.5"
+minimum_required_godot_version = "4.5"
 
 [gdextest.tests]
 sources = ["tests/**/*.cpp"]

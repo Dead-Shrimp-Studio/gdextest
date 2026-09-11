@@ -25,7 +25,9 @@ class Config:
     framework_dir: Path
     version: str = "1"
     godot: str | None = None
-    godot_version: str = "4.5"
+    # Lowest Godot major.minor[.patch] the tests can run against. Binaries with a
+    # higher version are valid; a lower one fails the doctor and test checks.
+    minimum_required_godot_version: str = "4.5"
     fixture_dir: str = "build/gdextest/project"
     build_dir: str = "build/gdextest"
     out_dir: str = "bin"
@@ -72,8 +74,10 @@ class Config:
             errors.append(f"project root does not exist: {self.project_root}")
         if require_framework and not (self.framework_dir / "SConscript").is_file():
             errors.append(f"framework SConscript not found: {self.framework_dir / 'SConscript'}")
-        if not self.godot_version or not re.fullmatch(r"\d+\.\d+(?:\.\d+)?", self.godot_version):
-            errors.append(f"invalid godot_version: {self.godot_version!r}")
+        if not self.minimum_required_godot_version or not re.fullmatch(
+                r"\d+\.\d+(?:\.\d+)?", self.minimum_required_godot_version):
+            errors.append(
+                f"invalid minimum_required_godot_version: {self.minimum_required_godot_version!r}")
         if self.host_mode not in SUPPORTED_HOST_MODES:
             errors.append(f"host_mode must be one of {sorted(SUPPORTED_HOST_MODES)}")
         if not self.test_sources:
@@ -296,7 +300,8 @@ def load_config(project_root: str | Path = ".", framework_dir: str | Path | None
         framework_dir=framework,
         version=str(_first(values, "version", default="1")),
         godot=_first(values, "godot"),
-        godot_version=str(_first(values, "godot_version", default="4.5")),
+        minimum_required_godot_version=str(
+            _first(values, "minimum_required_godot_version", default="4.5")),
         fixture_dir=str(_first(fixture, "directory", default=_first(values, "fixture_dir", default="build/gdextest/project"))),
         build_dir=str(_first(values, "build_dir", default="build/gdextest")),
         out_dir=str(_first(output, "directory", default=_first(values, "out_dir", default="bin"))),
@@ -396,7 +401,7 @@ def _discover_godot(config: Config) -> str | None:
     Binaries matching the configured major.minor (e.g. 4.5) are preferred;
     among the rest, the newest name wins. Returns None when nothing is found.
     """
-    expected = ".".join(config.godot_version.split(".")[:2])
+    expected = ".".join(config.minimum_required_godot_version.split(".")[:2])
     candidates: list[Path] = []
     directories: list[Path] = []
     current = config.project_root
@@ -466,6 +471,15 @@ def godot_version(executable: str) -> str:
     text = (output.stdout + output.stderr).strip()
     match = re.search(r"(\d+\.\d+(?:\.\d+)?)", text)
     return match.group(1) if match else text
+
+
+def version_at_least(actual: str, minimum: str) -> bool:
+    """Return True when `actual` is at or above the required `minimum` version."""
+
+    def _parts(value: str) -> tuple[int, ...]:
+        return tuple(int(part) for part in re.findall(r"\d+", value)[:3])
+
+    return bool(actual) and _parts(actual) >= _parts(minimum)
 
 
 def copy_globbed_assets(project_root: Path, fixture_root: Path, patterns: Iterable[str]) -> None:

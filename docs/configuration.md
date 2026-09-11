@@ -7,7 +7,7 @@ gdextest reads one TOML file, `.gdextest.toml`, at the root of the consumer repo
 ```toml
 [gdextest]
 version = "1"
-godot_version = "4.5"
+minimum_required_godot_version = "4.5"
 
 [gdextest.tests]
 sources = ["tests/**/*.cpp"]
@@ -50,7 +50,7 @@ library = "addons/my_extension/bin/libmy_extension.linux.editor.x86_64.so"
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `version` | `"1"` | Config format version. |
-| `godot_version` | `"4.5"` | Required Godot major.minor. The doctor and `test` check the found binary against it. |
+| `minimum_required_godot_version` | `"4.5"` | Minimum Godot major.minor[.patch] the tests need. The doctor and `test` reject a found binary below it; a binary at or above it runs the tests. |
 | `godot` | unset | Path to a Godot binary. Same effect as the `GODOT` environment variable. |
 
 ### `[gdextest.tests]`

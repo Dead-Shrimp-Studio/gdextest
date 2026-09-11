@@ -25,6 +25,7 @@ from gdextest_config import (
     locate_extension_manifest,
     resolve_sources,
     source_pattern_matches,
+    version_at_least,
 )
 
 # The CLI is sometimes imported by file path (tests, wrappers) rather than run
@@ -36,7 +37,7 @@ from gdextest_report import compute_totals, render_report, use_color
 
 CONFIG_TEMPLATE = '''[gdextest]
 version = "1"
-godot_version = "4.5"
+minimum_required_godot_version = "4.5"
 
 [gdextest.tests]
 sources = ["tests/**/*.cpp"]
@@ -483,8 +484,9 @@ def _run_doctor(config: Config, godot_override: str | None,
     try:
         executable = godot_executable(config, godot_override)
         version = godot_version(executable)
-        expected = ".".join(config.godot_version.split(".")[:2])
-        ok &= _print_check("Godot", f"{executable} ({version})", version.startswith(expected))
+        minimum = config.minimum_required_godot_version
+        ok &= _print_check("Godot", f"{executable} ({version})",
+                           version_at_least(version, minimum))
     except (FileNotFoundError, OSError) as error:
         ok &= _print_check("Godot", str(error), False)
     scons = shutil.which("scons")
@@ -493,15 +495,15 @@ def _run_doctor(config: Config, godot_override: str | None,
     ok &= _print_check("framework SConscript", str(framework_sconscript),
                        framework_sconscript.is_file())
     cpp_version = godot_cpp_version(config.project_root)
-    expected_cpp = ".".join(config.godot_version.split(".")[:2])
+    minimum = config.minimum_required_godot_version
     if cpp_version is None:
         print("[..] godot-cpp: not found at extern/godot-cpp (binding version unverified)",
               flush=True)
-    elif cpp_version == expected_cpp:
-        ok &= _print_check("godot-cpp", f"{cpp_version} (matches)", True)
+    elif version_at_least(cpp_version, minimum):
+        ok &= _print_check("godot-cpp", f"{cpp_version} (meets minimum)", True)
     else:
-        print(f"[!!] godot-cpp: {cpp_version} does not match the framework's {expected_cpp} "
-              f"(the framework uses {expected_cpp}-only GDExtension APIs); "
+        print(f"[!!] godot-cpp: {cpp_version} is below the required minimum {minimum} "
+              f"(GDExtension APIs before {minimum} may lack the used symbols); "
               "the test build may fail to compile", flush=True)
     sconstruct = config.project_root / "SConstruct"
     if sconstruct.is_file():
@@ -821,10 +823,11 @@ def cmd_test(args: argparse.Namespace) -> int:
     try:
         _run_build(config)
         executable = godot_executable(config, args.godot)
-        expected = ".".join(config.godot_version.split(".")[:2])
+        minimum = config.minimum_required_godot_version
         actual = godot_version(executable)
-        if expected and not actual.startswith(expected):
-            raise RuntimeError(f"Godot {actual} found, but gdextest requires {config.godot_version}")
+        if minimum and not version_at_least(actual, minimum):
+            raise RuntimeError(
+                f"Godot {actual} found, but gdextest requires at least {minimum}")
         # Unknown --gdextest-* flags pass through verbatim; the runner's exit code 2
         # still guards typos. CLI-generated flags are appended after, so they win.
         user_args: list[str] = list(getattr(args, "passthrough", []))
