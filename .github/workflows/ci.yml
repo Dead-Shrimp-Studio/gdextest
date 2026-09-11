@@ -5,20 +5,74 @@ on:
   pull_request:
 
 jobs:
-  test:
+  resolve-matrix:
     runs-on: ubuntu-latest
+    outputs:
+      godot_versions: ${{ steps.set-matrix.outputs.godot_versions }}
+    steps:
+      - name: Parse Godot versions
+        id: set-matrix
+        run: |
+          INPUT_VERSIONS="${{ vars.GODOT_VERSIONS || '4.5' }}"
+          echo "Raw version input: $INPUT_VERSIONS"
+
+          JSON_ARRAY=$(python3 -c "import json, os, sys; print(json.dumps([v.strip() for v in sys.argv[1].split(',') if v.strip()]))" "$INPUT_VERSIONS")
+          echo "Resolved matrix: $JSON_ARRAY"
+          echo "godot_versions=$JSON_ARRAY" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: resolve-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        godot_version: ${{ fromJson(needs.resolve-matrix.outputs.godot_versions) }}
+    env:
+      CCACHE_DIR: "${{ github.workspace }}/.ccache"
+      CC: "ccache gcc"
+      CXX: "ccache g++"
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Install SCons
-        run: python3 -m pip install scons
-      - name: Download Godot 4.5
+
+      - name: Install dependencies
         run: |
-          curl -fsSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.5-stable/Godot_v4.5-stable_linux.x86_64.zip
+          sudo apt-get update
+          sudo apt-get install -y ccache
+          python3 -m pip install scons
+
+      - name: Set up ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.godot_version }}-${{ hashFiles('extern/godot-cpp/**') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ matrix.godot_version }}-${{ hashFiles('extern/godot-cpp/**') }}-
+            ${{ runner.os }}-ccache-${{ matrix.godot_version }}-
+            ${{ runner.os }}-ccache-
+
+      - name: Zero ccache stats
+        run: ccache -z
+
+      - name: Download Godot ${{ matrix.godot_version }}
+        run: |
+          VERSION="${{ matrix.godot_version }}"
+          URL="https://github.com/godotengine/godot/releases/download/${VERSION}-stable/Godot_v${VERSION}-stable_linux.x86_64.zip"
+          echo "Downloading $URL"
+          curl -fsSL -o godot.zip "$URL"
           unzip -o godot.zip
-          chmod +x Godot_v4.5-stable_linux.x86_64
-      - name: Run the internal suite
-        run: GODOT="$PWD/Godot_v4.5-stable_linux.x86_64" ./run_tests.sh
-      - name: Run the consumer smoke test (init -> scaffold --apply -> test)
-        run: GODOT="$PWD/Godot_v4.5-stable_linux.x86_64" ./tests/consumer_smoke.sh
+          chmod +x "Godot_v${VERSION}-stable_linux.x86_64"
+
+      - name: Run internal test suite
+        run: |
+          VERSION="${{ matrix.godot_version }}"
+          GODOT="$PWD/Godot_v${VERSION}-stable_linux.x86_64" ./run_tests.sh
+
+      - name: Run consumer smoke test
+        run: |
+          VERSION="${{ matrix.godot_version }}"
+          GODOT="$PWD/Godot_v${VERSION}-stable_linux.x86_64" ./tests/consumer_smoke.sh
+
+      - name: Show ccache stats
+        run: ccache -s
