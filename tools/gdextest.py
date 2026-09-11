@@ -241,8 +241,8 @@ def _check_undefined_symbols(library: Path, config: Config | None = None) -> Non
         + "\n  ".join(symbols)
         + "\nThis usually means code your suite calls lives in your extension "
           "sources, which are not compiled into the test build. Add the "
-          "implementation file(s) and their dependencies (e.g. the md4c "
-          "sources) to `[gdextest.tests] sources` in .gdextest.toml.")
+          "implementation file(s) and their dependencies "
+          "to `[gdextest.tests] sources` in .gdextest.toml.")
     if config is not None:
         detail = "\n".join(f"  {pattern} -> {len(paths)} file(s)"
                            for pattern, paths in source_pattern_matches(config).items())

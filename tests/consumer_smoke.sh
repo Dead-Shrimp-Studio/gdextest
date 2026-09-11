@@ -58,8 +58,7 @@ env.Append(CPPPATH=[
     "extern/gdextest/extern/godot-cpp/gen/include",
     "extern/gdextest/extern/godot-cpp/include",
 ])
-env.Append(LIBPATH=["extern/gdextest/extern/godot-cpp/bin"])
-env["LIBS"] = ["godot-cpp" + suffix]
+env["LIBS"] = [env.File(f"extern/godot-cpp/.build/bin/libgodot-cpp{suffix}.a")]
 EOF
 
 cd "$TMP"
