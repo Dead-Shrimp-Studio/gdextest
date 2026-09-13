@@ -1,4 +1,12 @@
-# Async and multi-frame tests
+---
+title: Async tests
+description: Multi-frame tests with co_await: waits, timeouts, and budgets.
+order: 30
+sidebar: Basics
+draft: false
+---
+
+# Async tests
 
 Some behavior only shows up across engine frames: a tween settling, a deferred call landing, a timer firing. Async tests suspend the body, let the engine run, and resume it later. The body is a C++20 coroutine; the runner drives it with a `SceneTree.process_frame` pump.
 
@@ -73,4 +81,4 @@ The CLI forwards the TOML budgets on every run, so slow CI machines can raise th
 
 ## Testing async machinery without an engine
 
-The framework's own suite verifies the coroutine machinery headlessly with `SubAsyncPump` from `gdextest/runner.h`. It simulates frames and a millisecond clock, so timeouts and budgets are testable without a live engine. See the [API reference](api-reference.md) for its two methods, `start()` and `step()`.
+The framework's own suite verifies the coroutine machinery headlessly with `SubAsyncPump` from `gdextest/runner.h`. It simulates frames and a millisecond clock, so timeouts and budgets are testable without a live engine. See the [API reference](/projects/gdextest/docs/api-reference) for its two methods, `start()` and `step()`.

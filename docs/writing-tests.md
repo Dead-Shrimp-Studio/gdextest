@@ -1,6 +1,14 @@
+---
+title: Writing tests
+description: Registration macros, tags, every assertion, teardowns, skipping, and resource tracking.
+order: 20
+sidebar: Basics
+draft: false
+---
+
 # Writing tests
 
-This page covers everything a test author needs: registration, tags, assertions, the test context, teardowns, skipping, and resource tracking. For the raw declarations, see the [API reference](api-reference.md).
+This page covers everything a test author needs: registration, tags, assertions, the test context, teardowns, skipping, and resource tracking. For the raw declarations, see the [API reference](/projects/gdextest/docs/api-reference).
 
 ## A test in one minute
 
@@ -33,7 +41,7 @@ Rules:
 
 - `suite` and `name` must be C++ identifiers. The runner displays and filters them as `suite.name`.
 - Registration happens at static-initialization time, before the engine touches anything. No Godot objects take part in it.
-- Coroutine bodies must end with `co_return;`. A bare `return;` does not compile inside a coroutine. See [Async tests](async-tests.md).
+- Coroutine bodies must end with `co_return;`. A bare `return;` does not compile inside a coroutine. See [Async tests](/projects/gdextest/docs/async-tests).
 
 ## Tags
 
@@ -53,7 +61,7 @@ GDEX_TEST_T(self, flaky_test_passes_after_retries, TAG_UNIT | TAG_FLAKY) {
 }
 ```
 
-Bare tag names resolve inside the macros no matter what namespace your file uses. The CLI has no tag flag; tag-based selection is available through the `Filter` API (see the [API reference](api-reference.md)). `TAG_FLAKY` is the one tag the runner acts on by itself.
+Bare tag names resolve inside the macros no matter what namespace your file uses. The CLI has no tag flag; tag-based selection is available through the `Filter` API (see the [API reference](/projects/gdextest/docs/api-reference)). `TAG_FLAKY` is the one tag the runner acts on by itself.
 
 ## The test context
 
@@ -76,10 +84,10 @@ Main uses:
 | `ctx.add_teardown(fn)` | Register a cleanup callback. Runs LIFO when the body ends, even on abort or skip. |
 | `ctx.track_object(ptr)` | Fail the test if this Godot `Object` is still alive at teardown. |
 | `ctx.track_ref(ptr)` | Fail the test if this `RefCounted` gains references. |
-| `ctx.signals()` | Get the per-test `SignalMonitor` (engine tests only). See [Engine integration](engine-integration.md). |
-| `ctx.await_frames(n)` / `ctx.await_timer_ms(ms)` | Coroutine waits in async bodies. See [Async tests](async-tests.md). |
+| `ctx.signals()` | Get the per-test `SignalMonitor` (engine tests only). See [Engine integration](/projects/gdextest/docs/engine-integration). |
+| `ctx.await_frames(n)` / `ctx.await_timer_ms(ms)` | Coroutine waits in async bodies. See [Async tests](/projects/gdextest/docs/async-tests). |
 
-The context also exposes `failures()`, `failure_count()`, `skipped()`, and `skip_reason()` for inspection. The full member list lives in the [API reference](api-reference.md).
+The context also exposes `failures()`, `failure_count()`, `skipped()`, and `skip_reason()` for inspection. The full member list lives in the [API reference](/projects/gdextest/docs/api-reference).
 
 ## Assertions
 

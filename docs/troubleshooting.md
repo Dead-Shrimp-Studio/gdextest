@@ -1,3 +1,11 @@
+---
+title: Troubleshooting
+description: Known failure modes and their fixes.
+order: 100
+sidebar: Reference
+draft: false
+---
+
 # Troubleshooting
 
 Known failure modes and their fixes. Run `gdextest doctor` first for most of these; it names the broken piece.
@@ -37,7 +45,7 @@ The parser rejects malformed values with `file:line` context instead of guessing
 
 ### Configuration key ignored
 
-Check the key name against [Configuration reference](configuration.md). Flat legacy keys still work, but the structured sections are the documented form. Remember the precedence order: SConscript export, then CLI environment variables, then the TOML, then defaults.
+Check the key name against [Configuration](/projects/gdextest/docs/configuration). Flat legacy keys still work, but the structured sections are the documented form. Remember the precedence order: SConscript export, then CLI environment variables, then the TOML, then defaults.
 
 ## Editor and fixture problems
 
@@ -51,7 +59,7 @@ The run never triggered. Check, in order:
 
 ### Editor crashes on shutdown
 
-The run started before the editor's first filesystem scan finished. The generated plugin script already waits for `is_scanning()`. If you maintain a custom fixture, keep that wait (see [Consumer guide](consumer-guide.md#10-create-a-custom-fixture-project-optional)).
+The run started before the editor's first filesystem scan finished. The generated plugin script already waits for `is_scanning()`. If you maintain a custom fixture, keep that wait (see [Consumer guide](/projects/gdextest/docs/consumer-guide#10-create-a-custom-fixture-project-optional)).
 
 ### Godot errors about a manifest or library name you no longer use
 
@@ -88,7 +96,7 @@ GDX_RUN_TESTS=1 ./extern/gdextest/gdextest list
 
 ### Exit code `2` with a message about an option
 
-Usage errors exit `2`: a malformed value (`--gdextest-shard=xyz`), a shard outside `[0, n)`, or an unknown `--gdextest-*` option. The message names the offending option. Check the flag spelling against [CLI reference](cli.md).
+Usage errors exit `2`: a malformed value (`--gdextest-shard=xyz`), a shard outside `[0, n)`, or an unknown `--gdextest-*` option. The message names the offending option. Check the flag spelling against [CLI reference](/projects/gdextest/docs/cli).
 
 ### Async test fails with `timed out`
 

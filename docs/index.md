@@ -1,4 +1,12 @@
-# gdextest documentation
+---
+title: gdextest
+description: A C++ testing framework for Godot GDExtensions: tests run inside a real, headless Godot process.
+order: 1
+sidebar: Basics
+draft: false
+---
+
+# gdextest
 
 Welcome to the gdextest documentation. gdextest is a C++ testing framework for Godot GDExtensions.
 
@@ -36,22 +44,22 @@ GDEX_TEST(smoke, framework_is_wired) {
 ./extern/gdextest/gdextest test
 ```
 
-The command writes a starter config when none exists, checks the environment, builds the test library, and runs it headless. Exit code `0` means all tests passed. Exit code `1` means at least one test failed. See [Getting started](getting-started.md) for the full walkthrough.
+The command writes a starter config when none exists, checks the environment, builds the test library, and runs it headless. Exit code `0` means all tests passed. Exit code `1` means at least one test failed. See [Getting started](/projects/gdextest/docs/getting-started) for the full walkthrough.
 
 ## Documentation map
 
 | Page | Read it to learn ... |
 | --- | --- |
-| [Getting started](getting-started.md) | Install the framework, write a first suite, run it, wire CI |
-| [Writing tests](writing-tests.md) | Registration macros, tags, every assertion, teardowns, skipping, resource tracking |
-| [Async tests](async-tests.md) | Multi-frame tests with `co_await`, waits, timeouts, and budgets |
-| [Engine integration](engine-integration.md) | Live-engine tests and the `SignalMonitor` API |
-| [Architecture](architecture.md) | Design goals, layering rules, the adapter system, the life of a run |
-| [CLI reference](cli.md) | Every command and flag, exit codes, and output formats |
-| [Configuration](configuration.md) | The full `.gdextest.toml` reference |
-| [Consumer guide](consumer-guide.md) | End-to-end integration in another repository: build, entry, adapter, fixtures |
-| [API reference](api-reference.md) | The complete public API, header by header |
-| [Troubleshooting](troubleshooting.md) | Known failure modes and their fixes |
+| [Getting started](/projects/gdextest/docs/getting-started) | Install the framework, write a first suite, run it, wire CI |
+| [Writing tests](/projects/gdextest/docs/writing-tests) | Registration macros, tags, every assertion, teardowns, skipping, resource tracking |
+| [Async tests](/projects/gdextest/docs/async-tests) | Multi-frame tests with `co_await`, waits, timeouts, and budgets |
+| [Engine integration](/projects/gdextest/docs/engine-integration) | Live-engine tests and the `SignalMonitor` API |
+| [Architecture](/projects/gdextest/docs/architecture) | Design goals, layering rules, the adapter system, the life of a run |
+| [CLI reference](/projects/gdextest/docs/cli) | Every command and flag, exit codes, and output formats |
+| [Configuration](/projects/gdextest/docs/configuration) | The full `.gdextest.toml` reference |
+| [Consumer guide](/projects/gdextest/docs/consumer-guide) | End-to-end integration in another repository: build, entry, adapter, fixtures |
+| [API reference](/projects/gdextest/docs/api-reference) | The complete public API, header by header |
+| [Troubleshooting](/projects/gdextest/docs/troubleshooting) | Known failure modes and their fixes |
 
 ## Repository layout
 
@@ -73,4 +81,4 @@ The command writes a starter config when none exists, checks the environment, bu
 
 ## License
 
-See [LICENSE](../LICENSE) in the repository root.
+See [LICENSE](https://github.com/Dead-Shrimp-Studio/gdextension-test-framework/blob/main/LICENSE) in the repository root.

@@ -4,6 +4,8 @@
 
 A C++ testing framework for [Godot](https://godotengine.org) GDExtensions. You write googletest-style suites in plain C++. gdextest compiles them into a test-only shared object, loads it in a real (headless) Godot process through a generated fixture project, and reports pass/fail through the process exit code. No separate runner binary, no scripting layer, no changes to your release build.
 
+**Website:** [deadshrimpstudio.com/projects/gdextest](https://deadshrimpstudio.com/projects/gdextest/)
+
 ## Why gdextest
 
 - **Tests live in the engine.** Integration tests reach singletons, `ClassDB`, and the live scene tree directly. Pure-logic tests need no engine at all.
@@ -144,7 +146,7 @@ Runner flags (`--gdextest-run`, `--gdextest-filter=`, `--gdextest-shard=k/n`, `-
 
 ## Documentation
 
-The full documentation lives in [`docs/`](docs/README.md):
+The full documentation lives in [`docs/`](docs/index.md):
 
 | Page | Contents |
 | --- | --- |
@@ -178,7 +180,7 @@ The full documentation lives in [`docs/`](docs/README.md):
 | `tests/` | Framework self-tests + reference suites |
 | `tools/` | CLI (`gdextest.py`), config loading, fixture generator |
 | `run_tests.sh` | Build + run this repository's own suite, one command |
-| `docs/` | The documentation wiki — start at [`docs/README.md`](docs/README.md) |
+| `docs/` | The documentation wiki — start at [`docs/index.md`](docs/index.md) |
 
 ## Requirements
 

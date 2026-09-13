@@ -1,3 +1,11 @@
+---
+title: Consumer guide
+description: End-to-end integration in another repository: build wiring, adapters, entry points, fixtures, CI.
+order: 50
+sidebar: Reference
+draft: false
+---
+
 # Consumer guide
 
 How another GDExtension repository integrates gdextest, from the first submodule to a parallel CI run.
@@ -65,7 +73,7 @@ Suite authors normally need only `assert.h` and `registry.h`. The SConscript com
 
 ## 3. Write suites
 
-Plain C++ files with the macros. See [Writing tests](writing-tests.md) for the full surface:
+Plain C++ files with the macros. See [Writing tests](/projects/gdextest/docs/writing-tests) for the full surface:
 
 ```cpp
 #include "gdextest/assert.h"
@@ -78,7 +86,7 @@ GDEX_TEST(math_utils, clamp_keeps_value_in_range) {
 }
 ```
 
-For engine-facing tests, tag them and include `engine.h`. For frame-dependent behavior, use `GDEX_TEST_ASYNC`. See [Engine integration](engine-integration.md) and [Async tests](async-tests.md).
+For engine-facing tests, tag them and include `engine.h`. For frame-dependent behavior, use `GDEX_TEST_ASYNC`. See [Engine integration](/projects/gdextest/docs/engine-integration) and [Async tests](/projects/gdextest/docs/async-tests).
 
 **The code under test must be in the test build.** Everything a suite calls must compile into the test library (via `[gdextest.tests] sources`) or load through `[gdextest.consumer_extension]`. Otherwise the library carries undefined symbols; the CLI catches them with `ldd -r` right after the build.
 
@@ -135,7 +143,7 @@ name = "libmy_extension_tests"
 args = []                   # extra scons args, e.g. ["target=editor"]
 ```
 
-Every key is documented in [Configuration reference](configuration.md). Points worth knowing:
+Every key is documented in [Configuration](/projects/gdextest/docs/configuration). Points worth knowing:
 
 - The `[gdextest.test]` budgets are forwarded to the runner on every CLI run. CI can raise them without rebuilding the framework.
 - `scan_timeout_ms` bounds the editor's first filesystem scan in the generated fixture host.
@@ -228,7 +236,7 @@ Dispatch points:
 | `on_uninitialize` | Each uninitialization level, in reverse order. |
 | `on_ready` | Once per triggered run, with the host node, before `bootstrap`. |
 
-Multiple adapters are supported. `GDEX_REGISTER_ADAPTER` works from any translation unit compiled into the test build. See [Architecture](architecture.md#the-adapter-system) for the dispatch flow.
+Multiple adapters are supported. `GDEX_REGISTER_ADAPTER` works from any translation unit compiled into the test build. See [Architecture](/projects/gdextest/docs/architecture#the-adapter-system) for the dispatch flow.
 
 ### Replacing the reference adapter entirely
 
@@ -368,7 +376,7 @@ The CLI keeps `user://` hermetic: it wipes `build/gdextest/user-data` before eve
 
 ## Where to go from here
 
-- [Configuration reference](configuration.md) — every key and default.
-- [CLI reference](cli.md) — every command, flag, and output format.
-- [Troubleshooting](troubleshooting.md) — when something goes red.
-- [Architecture](architecture.md) — how the framework works inside.
+- [Configuration](/projects/gdextest/docs/configuration) — every key and default.
+- [CLI reference](/projects/gdextest/docs/cli) — every command, flag, and output format.
+- [Troubleshooting](/projects/gdextest/docs/troubleshooting) — when something goes red.
+- [Architecture](/projects/gdextest/docs/architecture) — how the framework works inside.

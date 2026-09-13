@@ -1,3 +1,11 @@
+---
+title: Getting started
+description: Install the framework, write a first suite, run it, and wire CI.
+order: 10
+sidebar: Basics
+draft: false
+---
+
 # Getting started
 
 This page walks you from an empty repository to a green test run.
@@ -35,7 +43,7 @@ GDEX_TEST(smoke, framework_is_wired) {
 }
 ```
 
-Suites are plain C++ files. Every test body receives a `TestContext&` named `ctx`, so the assertion macros find it by name. See [Writing tests](writing-tests.md) for the full macro set.
+Suites are plain C++ files. Every test body receives a `TestContext&` named `ctx`, so the assertion macros find it by name. See [Writing tests](/projects/gdextest/docs/writing-tests) for the full macro set.
 
 ## 3. Run the tests
 
@@ -54,7 +62,7 @@ One command does everything:
 
 Exit codes: `0` all tests passed, `1` at least one failed or crashed, `2` usage or environment error.
 
-Add `--json=results.json` for machine-readable results. See [CLI reference](cli.md).
+Add `--json=results.json` for machine-readable results. See [CLI reference](/projects/gdextest/docs/cli).
 
 ## 4. Wire your build permanently (optional)
 
@@ -79,11 +87,11 @@ This writes `.github/workflows/gdextest.yml`. The workflow installs SCons, downl
 ./extern/gdextest/gdextest report 'shard*.json' --json=merged.json --junit=merged.xml
 ```
 
-`report` exits `1` when any merged test failed, so the merge step is also a gate. See [CLI reference](cli.md) for the complete flag list and [Consumer guide](consumer-guide.md) for CI recipes.
+`report` exits `1` when any merged test failed, so the merge step is also a gate. See [CLI reference](/projects/gdextest/docs/cli) for the complete flag list and [Consumer guide](/projects/gdextest/docs/consumer-guide) for CI recipes.
 
 ## Where to go next
 
-- [Writing tests](writing-tests.md) — assertions, tags, teardowns, and resource tracking.
-- [Async tests](async-tests.md) — suspend a test across engine frames.
-- [Engine integration](engine-integration.md) — reach the live engine and monitor signals.
-- [Consumer guide](consumer-guide.md) — build wiring, adapters, custom entry points and fixtures.
+- [Writing tests](/projects/gdextest/docs/writing-tests) — assertions, tags, teardowns, and resource tracking.
+- [Async tests](/projects/gdextest/docs/async-tests) — suspend a test across engine frames.
+- [Engine integration](/projects/gdextest/docs/engine-integration) — reach the live engine and monitor signals.
+- [Consumer guide](/projects/gdextest/docs/consumer-guide) — build wiring, adapters, custom entry points and fixtures.

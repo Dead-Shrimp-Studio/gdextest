@@ -1,3 +1,11 @@
+---
+title: Architecture
+description: Design goals, layering rules, the adapter system, and the life of a run.
+order: 60
+sidebar: Reference
+draft: false
+---
+
 # Architecture
 
 This page explains how gdextest is built and why. Read it when you want to change the framework, write a custom adapter or entry point, or understand what happens during a run.
@@ -14,17 +22,11 @@ This page explains how gdextest is built and why. Read it when you want to chang
 Suites register themselves in a static registry when the test shared object loads. The fixture Godot project enables an editor plugin that instantiates a native host node. The adapter checks for a run trigger, bootstraps host services, and hands the live tree node to the runner. The runner parses the `--gdextest-*` options, selects tests, runs them (sync bodies inline, async bodies through a frame pump), writes the JSON results document, reports a marker-prefixed summary (`GDX_TEST_OUTPUT:` lines — quiet by default, `--gdextest-report=pretty` restores the human layout), and quits the engine with a status code. The CLI renders the human report from the JSON after the engine exits.
 
 ```text
-+----------------+      +--------------------+      +------------------+
-|  test suites   | ---> |  framework core    | ---> |  runner          |
-|  (your C++)    |      |  registry/asserts  |      |  (engine-facing) |
-+----------------+      +--------------------+      +------------------+
-                                                             ^
-                                        adapter calls run_all_and_quit(node)
-                                                             |
-+----------------+      +--------------------+      +------------------+
-|  godot binary  | <--- |  fixture project   | <--- |  adapter + entry |
-|  --headless    |      |  (plugin enables)  |      |  (framework src) |
-+----------------+      +--------------------+      +------------------+
+your suites -> framework core (registry, asserts) -> runner (engine-facing)
+                                                        ^
+                 adapter calls run_all_and_quit(node) --+
+
+godot binary --headless <- fixture project (plugin enables) <- adapter + entry
 ```
 
 ## Layering rules

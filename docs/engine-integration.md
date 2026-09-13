@@ -1,4 +1,12 @@
-# Engine integration tests
+---
+title: Engine integration
+description: Live-engine tests: singletons, scene tree, and the SignalMonitor API.
+order: 40
+sidebar: Basics
+draft: false
+---
+
+# Engine integration
 
 Pure-logic tests run fine without the engine. When a test needs singletons, `ClassDB`, real scene-tree structure, or signals, opt in with a tag and one header.
 
@@ -64,7 +72,7 @@ Memory rules:
 
 - Allocate engine objects with `memnew` and free them with `memdelete`.
 - `RefCounted` objects can live in a `godot::Ref`. Track them with `ctx.track_ref`.
-- Clean up in the body, or let a teardown do it (see [Writing tests](writing-tests.md)).
+- Clean up in the body, or let a teardown do it (see [Writing tests](/projects/gdextest/docs/writing-tests)).
 
 ## Signal monitoring with `SignalMonitor`
 
@@ -136,6 +144,6 @@ Inside the engine process, a test body can use everything godot-cpp offers:
 - Singletons: `OS`, `Engine`, `Time`, `ProjectSettings`, your own autoloads.
 - `ClassDB`: check that your classes are registered.
 - The live scene tree: build graphs under `engine_tree(ctx)->get_root()`.
-- Your extension's real code, compiled into the test build or loaded through `[gdextest.consumer_extension]` (see [Consumer guide](consumer-guide.md)).
+- Your extension's real code, compiled into the test build or loaded through `[gdextest.consumer_extension]` (see [Consumer guide](/projects/gdextest/docs/consumer-guide)).
 
-Pair integration tests with async bodies when the behavior needs frames: `GDEX_TEST_ASYNC_T(my_suite, settles_over_frames, TAG_INTEGRATION | TAG_ASYNC)`. See [Async tests](async-tests.md).
+Pair integration tests with async bodies when the behavior needs frames: `GDEX_TEST_ASYNC_T(my_suite, settles_over_frames, TAG_INTEGRATION | TAG_ASYNC)`. See [Async tests](/projects/gdextest/docs/async-tests).

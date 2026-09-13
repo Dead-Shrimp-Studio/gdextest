@@ -1,3 +1,11 @@
+---
+title: API reference
+description: The complete public API, header by header.
+order: 90
+sidebar: Reference
+draft: false
+---
+
 # API reference
 
 The complete public surface of the framework, header by header. Headers live in `include/gdextest/`. Suite authors include `gdextest/assert.h` and `gdextest/registry.h`; the SConscript adds `include/` to the test target's include path, so the includes resolve as `gdextest/...`.
@@ -104,7 +112,7 @@ Selection semantics:
 
 ## Assertions
 
-Header: `gdextest/assert.h`. All macros are statements that record on the in-scope `ctx`. See [Writing tests](writing-tests.md) for usage guidance and failure-message examples.
+Header: `gdextest/assert.h`. All macros are statements that record on the in-scope `ctx`. See [Writing tests](/projects/gdextest/docs/writing-tests) for usage guidance and failure-message examples.
 
 ### Non-fatal expectations
 

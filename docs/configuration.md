@@ -1,4 +1,12 @@
-# Configuration reference
+---
+title: Configuration
+description: The full .gdextest.toml reference: sections, keys, defaults, validation, precedence.
+order: 80
+sidebar: Reference
+draft: false
+---
+
+# Configuration
 
 gdextest reads one TOML file, `.gdextest.toml`, at the root of the consumer repository. The CLI creates a starter file when `gdextest test` or `gdextest init` runs and none exists. It never overwrites an existing file unless you pass `--force` to `init`.
 
@@ -113,7 +121,7 @@ The fixture is removed after each run. Pass `--keep-fixture` to `test` or `list`
 
 ### `[gdextest.consumer_extension]`
 
-Loads your real extension alongside the tests. See [Consumer guide](consumer-guide.md#6-load-your-real-extension) for the full story.
+Loads your real extension alongside the tests. See [Consumer guide](/projects/gdextest/docs/consumer-guide#6-load-your-real-extension) for the full story.
 
 | Key | Default | Meaning |
 | --- | --- | --- |

@@ -1,3 +1,11 @@
+---
+title: CLI reference
+description: Every command and flag, exit codes, doctor checks, and output formats.
+order: 70
+sidebar: Reference
+draft: false
+---
+
 # CLI reference
 
 The CLI is the `gdextest` script inside the framework submodule. Run it from your repository root:
