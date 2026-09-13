@@ -17,7 +17,6 @@ const std::vector<TestCase> &TestRegistry::all() const { return cases_; }
 namespace {
 
 // Simple glob: '*' matches any run of chars, '?' matches one, '.' is literal.
-// Case-sensitive (plan §5.4). No other regex features.
 bool glob_match(const char *pat, const char *str) {
     while (*pat) {
         if (*pat == '*') {
@@ -103,7 +102,7 @@ std::vector<const TestCase *> TestRegistry::select(const Filter &f) const {
     }
 
     if (f.shuffle) {
-        // Fisher–Yates with a fixed LCG seeded from shuffle_seed (reproducible; plan §5.4).
+
         unsigned s = f.shuffle_seed ? f.shuffle_seed : 1;
         for (size_t i = out.size(); i > 1; --i) {
             s = s * 1103515245u + 12345u;
@@ -111,7 +110,7 @@ std::vector<const TestCase *> TestRegistry::select(const Filter &f) const {
             std::swap(out[i - 1], out[j]);
         }
     }
-    // Declaration order is preserved when not shuffling (plan §5.4).
+
     return out;
 }
 

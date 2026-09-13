@@ -1,13 +1,4 @@
-// Async / multi-frame suite (plan §12 "async", Milestone C).
-//
-// These tests exercise the live engine's frame loop: each body suspends on a
-// co_await and the runner's process_frame pump resumes it across frames. They
-// only run through the engine trigger (the fixture's EditorPlugin), where the
-// runner attaches the live tree node to each test's context.
-//
-// The timeout/isolate machinery (a wait that never resolves is failed, never
-// hangs the run) is verified headlessly in framework_self_tests.cpp via the
-// manual SubAsyncPump; these tests verify the real engine path.
+
 #ifdef GDEXTEST_ENABLED
 
 #include <cstdint>

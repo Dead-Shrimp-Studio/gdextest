@@ -10,12 +10,7 @@ CLI can render both single runs and merged shard reports with the same code.
 Colors follow GoogleTest's precedent: on for a TTY, off when piped, off in CI
 logs, with the NO_COLOR / CLICOLOR_FORCE conventions. The decision is made
 once by `use_color()` and passed explicitly to `render_report()`, so rendering
-is deterministic and unit-testable without a terminal.
-
-Milestone M1 scope (plan: .plans/gtest-style-console-output.md): this module
-plus the opt-in `gdextest report --console` surface. `gdextest test` wiring
-(captured stdio, post-exit rendering) is M2.
-"""
+is deterministic and unit-testable without a terminal."""
 
 from __future__ import annotations
 

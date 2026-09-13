@@ -1,6 +1,4 @@
-// Host suite #2 (plan §14 M1: "stateful"). Exercises a small state machine — the
-// §12 "state" category. A trivial counter stands in for a real extension module
-// until one exists; the point is to prove fixture-style per-test state isolation.
+
 #ifdef GDEXTEST_ENABLED
 
 #include "gdextest/assert.h"

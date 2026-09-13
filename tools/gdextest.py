@@ -662,14 +662,6 @@ def cmd_report(args: argparse.Namespace) -> int:
         print(f"gdextest: wrote {args.junit}")
     return 1 if merged["totals"]["fail"] or merged["totals"]["crashed"] else 0
 
-
-# --- captured-output plumbing (M2) -------------------------------------------
-
-# Every line the runner prints on stdout inside the engine process carries this
-# prefix (runner milestone M3), so the CLI can separate framework output from
-# Godot's own chatter in the captured stream. Until M3 lands, the runner's
-# legacy lines are classified as noise and the render path relies on the JSON
-# document instead — which the runner already writes today.
 GDX_TEST_OUTPUT_PREFIX = "GDX_TEST_OUTPUT:"
 
 # Noise lines kept for diagnostics when a run fails or no results document was

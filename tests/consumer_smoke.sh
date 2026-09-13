@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# End-to-end consumer-flow check (interop regression guard).
 #
 # Copies this framework into a scratch consumer repo and drives both documented
 # flows exactly as a real GDExtension would, against the real Godot binary:
@@ -11,9 +10,6 @@
 # ignored, or the include/path handling — the class of bugs that only show up
 # when the framework is used as a dependency.
 #
-# Usage:
-#   ./tests/consumer_smoke.sh                 # uses $GODOT, then `godot` on PATH
-#   GODOT=/path/to/godot ./tests/consumer_smoke.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

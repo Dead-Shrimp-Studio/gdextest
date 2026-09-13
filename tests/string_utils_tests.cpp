@@ -1,6 +1,4 @@
-// Host suite #1 (plan §14 M1: "pure"). Exercises pure logic — the §12 "unit" category.
-// Until the real extension has modules to test, this stands in with a tiny utility the
-// host is expected to provide (or a std-only equivalent). Compiled under GDEXTEST_ENABLED.
+
 #ifdef GDEXTEST_ENABLED
 
 #include <string>

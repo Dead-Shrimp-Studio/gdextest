@@ -1,13 +1,4 @@
-// Runner: the Godot-facing test execution boundary.
-//
-// Console contract (Milestone M3): every line the runner prints on stdout
-// inside the engine process is prefixed with `GDX_TEST_OUTPUT:`, so wrappers
-// can separate framework output from Godot's own chatter. In-engine stdout is
-// quiet by default — one summary line plus one line per test (with failure and
-// skip detail), all marker-prefixed. `--gdextest-report=pretty` keeps the
-// legacy layout under the same marker rule. The machine-readable results go to
-// `--gdextest-json=<path>` and optionally `--gdextest-report-path=<path>`
-// (same schema), written before anything is printed.
+
 #pragma once
 
 #include <functional>
@@ -35,7 +26,7 @@ GDEXTEST_API int run_sub_and_count_failures(void (*body)(TestContext &));
 // JSON writer without a full engine run.
 GDEXTEST_API int run_sub_and_write_json(void (*body)(TestContext &), const char *path);
 
-// Manual frame pump for async self-tests (plan §7.2): simulates process_frame
+// Manual frame pump for async self-tests: simulates process_frame
 // ticks and a monotonic ms clock, so the coroutine machinery (suspend/resume,
 // per-wait timeout, isolate budget) is verifiable without an engine.
 class SubAsyncPump {
