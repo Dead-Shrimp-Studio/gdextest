@@ -1,8 +1,8 @@
 ---
-title: Consumer guide
-description: End-to-end integration in another repository: build wiring, adapters, entry points, fixtures, CI.
+title: "Consumer guide"
+description: "End-to-end integration in another repository: build wiring, adapters, entry points, fixtures, CI."
 order: 50
-sidebar: Reference
+sidebar: "Reference"
 draft: false
 ---
 

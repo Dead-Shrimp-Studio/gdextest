@@ -1,8 +1,8 @@
 ---
-title: Architecture
-description: Design goals, layering rules, the adapter system, and the life of a run.
+title: "Architecture"
+description: "Design goals, layering rules, the adapter system, and the life of a run."
 order: 60
-sidebar: Reference
+sidebar: "Reference"
 draft: false
 ---
 

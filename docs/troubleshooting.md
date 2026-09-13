@@ -1,8 +1,8 @@
 ---
-title: Troubleshooting
-description: Known failure modes and their fixes.
+title: "Troubleshooting"
+description: "Known failure modes and their fixes."
 order: 100
-sidebar: Reference
+sidebar: "Reference"
 draft: false
 ---
 

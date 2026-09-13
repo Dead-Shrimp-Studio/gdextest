@@ -1,8 +1,8 @@
 ---
-title: Writing tests
-description: Registration macros, tags, every assertion, teardowns, skipping, and resource tracking.
+title: "Writing tests"
+description: "Registration macros, tags, every assertion, teardowns, skipping, and resource tracking."
 order: 20
-sidebar: Basics
+sidebar: "Basics"
 draft: false
 ---
 

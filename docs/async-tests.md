@@ -1,8 +1,8 @@
 ---
-title: Async tests
-description: Multi-frame tests with co_await: waits, timeouts, and budgets.
+title: "Async tests"
+description: "Multi-frame tests with co_await: waits, timeouts, and budgets."
 order: 30
-sidebar: Basics
+sidebar: "Basics"
 draft: false
 ---
 

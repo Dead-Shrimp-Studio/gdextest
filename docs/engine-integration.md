@@ -1,8 +1,8 @@
 ---
-title: Engine integration
-description: Live-engine tests: singletons, scene tree, and the SignalMonitor API.
+title: "Engine integration"
+description: "Live-engine tests: singletons, scene tree, and the SignalMonitor API."
 order: 40
-sidebar: Basics
+sidebar: "Basics"
 draft: false
 ---
 

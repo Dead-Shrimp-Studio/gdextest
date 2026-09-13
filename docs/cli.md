@@ -1,8 +1,8 @@
 ---
-title: CLI reference
-description: Every command and flag, exit codes, doctor checks, and output formats.
+title: "CLI reference"
+description: "Every command and flag, exit codes, doctor checks, and output formats."
 order: 70
-sidebar: Reference
+sidebar: "Reference"
 draft: false
 ---
 

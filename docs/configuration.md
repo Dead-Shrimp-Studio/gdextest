@@ -1,8 +1,8 @@
 ---
-title: Configuration
-description: The full .gdextest.toml reference: sections, keys, defaults, validation, precedence.
+title: "Configuration"
+description: "The full .gdextest.toml reference: sections, keys, defaults, validation, precedence."
 order: 80
-sidebar: Reference
+sidebar: "Reference"
 draft: false
 ---
 

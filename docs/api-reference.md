@@ -1,8 +1,8 @@
 ---
-title: API reference
-description: The complete public API, header by header.
+title: "API reference"
+description: "The complete public API, header by header."
 order: 90
-sidebar: Reference
+sidebar: "Reference"
 draft: false
 ---
 

@@ -1,8 +1,8 @@
 ---
-title: Getting started
-description: Install the framework, write a first suite, run it, and wire CI.
+title: "Getting started"
+description: "Install the framework, write a first suite, run it, and wire CI."
 order: 10
-sidebar: Basics
+sidebar: "Basics"
 draft: false
 ---
 

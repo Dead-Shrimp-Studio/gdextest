@@ -1,8 +1,8 @@
 ---
-title: gdextest
-description: A C++ testing framework for Godot GDExtensions: tests run inside a real, headless Godot process.
+title: "gdextest"
+description: "A C++ testing framework for Godot GDExtensions: tests run inside a real, headless Godot process."
 order: 1
-sidebar: Basics
+sidebar: "Basics"
 draft: false
 ---
 
