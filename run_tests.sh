@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Build the gdextest library, wire it into the fixture project, and run the
-# suites headless (plan §2/§3). Exit code: 0 = all pass, 1 = failures.
 #
 # Usage:
 #   ./run_tests.sh                 # uses $GODOT, then `godot` on PATH

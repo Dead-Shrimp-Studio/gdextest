@@ -187,8 +187,6 @@ if _is_msvc:
     for include in godot_cpp_includes:
         test_env.Append(CCFLAGS=["/external:I", str(include)])
     test_env.Append(CCFLAGS=["/W4"])
-    # C++20 for coroutines (async tests, plan §7.2) + exceptions (abort an
-    # individual test body without crossing an engine callback boundary).
     test_env.Append(CXXFLAGS=["/std:c++20", "/EHsc"])
 else:
     for include in godot_cpp_includes:

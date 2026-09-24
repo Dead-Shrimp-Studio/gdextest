@@ -1,5 +1,4 @@
-// Single customization point for the gdextest framework.
-// Hosts with a naming clash redefine these here (and only here) — see plan §15.
+
 #pragma once
 
 #include <cstdint>

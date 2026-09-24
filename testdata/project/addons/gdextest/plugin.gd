@@ -4,11 +4,6 @@ extends EditorPlugin
 # directly (extending the native GdextestPlugin is rejected). This thin wrapper
 # instantiates the native plugin (registered in ClassDB by the extension) as a
 # child; its C++ _ready() calls the adapter, which runs the suites and quits.
-#
-# The run is deferred until the initial editor filesystem scan finishes:
-# quitting while the scan thread is still starting up races it and can crash
-# the editor on shutdown (docs/testing/notes.md §3.3). _ready() fires mid
-# initialization, so we poll EditorFileSystem.is_scanning() on process_frame.
 
 const SCAN_TIMEOUT_MS := 20000
 

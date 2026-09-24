@@ -1,10 +1,4 @@
-// Engine integration suite (plan roadmap: expose live SceneTree to test bodies).
-//
-// These tests exercise the LIVE Godot engine, so they are the first real
-// consumers of the opaque engine handle stored on TestContext (see
-// gdextest/engine.h). They run only when the suite is invoked through the
-// engine trigger (the fixture's EditorPlugin), where the runner attaches the
-// live tree node to each test's context.
+
 #ifdef GDEXTEST_ENABLED
 
 #include <godot_cpp/classes/node.hpp>

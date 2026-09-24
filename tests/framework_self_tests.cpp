@@ -1,4 +1,4 @@
-// Compiled only under GDEXTEST_ENABLED.
+
 #ifdef GDEXTEST_ENABLED
 
 #include <algorithm>
@@ -390,7 +390,6 @@ GDEX_TEST(self, tagged_registration_preserves_metadata) {
     GDEX_EXPECT_TRUE(found_async);
 }
 
-// --- async: the manual pump (plan §7.2) -----------------------------------
 // SubAsyncPump simulates process_frame ticks and a monotonic ms clock, so the
 // coroutine machinery (suspend/resume, per-wait timeout, isolate budget, JSON)
 // is verifiable headlessly without a Godot engine.

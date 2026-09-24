@@ -1,8 +1,4 @@
-// Runner: the Godot-facing test execution boundary (plan §5.5). Parses the
-// --gdextest-* options, selects tests, and drives them to completion — sync
-// bodies inline, async bodies (Milestone C) through a process_frame pump that
-// resumes suspended coroutines — then writes human + JSON output and exits via
-// SceneTree::quit(code) (0 = pass, 1 = failure, 2 = usage error).
+
 #include "gdextest/runner.h"
 
 #include <coroutine>
@@ -29,10 +25,6 @@
 
 namespace gdextest {
 
-// Every line this runner prints to stdout inside the engine process carries
-// this prefix (Milestone M3), so the CLI can separate framework output from
-// Godot's own chatter in the captured stream. Consumers who drive Godot
-// directly can grep for it, too.
 inline constexpr const char *kGdxOutputMarker = "GDX_TEST_OUTPUT:";
 
 void TestContext::track_object(void *obj) {
@@ -60,10 +52,6 @@ struct Options {
     int shard_index = 0;
     int shard_count = 1;
     std::string json_path;
-    // Machine-friendly reporting (Milestone M3): `report_path` is an extra
-    // JSON document the CLI (or any wrapper) reads after the process exits;
-    // `report` selects the in-engine stdout verbosity. Defaults stay quiet —
-    // the CLI renders the pretty report from the JSON document.
     std::string report_path;
     bool pretty_report = false;
     // Runtime budgets, populated from --gdextest-* flags (the CLI forwards the
@@ -360,14 +348,6 @@ TestResult run_one(const TestCase &test_case, void *engine_node) {
     result.duration_ms = (std::clock() - start) * 1000 / CLOCKS_PER_SEC;
     return result;
 }
-
-// --- async frame pump (plan §7.2, Milestone C) -------------------------------
-// Sync tests still run inline. An async test is a coroutine: the runner starts
-// it, and when it co_awaits, the pump registers a process_frame callback and
-// returns control to the engine main loop. Each frame advances the current await
-// (frames remaining / elapsed time) and resumes the coroutine when it resolves.
-// Tests run one at a time in declaration order; timeouts are enforced per wait
-// (kDefaultTimeoutMs) and per test (kDefaultIsolateTimeoutSec).
 
 struct RunState {
     Options options;

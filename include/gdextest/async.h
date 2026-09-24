@@ -1,8 +1,4 @@
-// Async / multi-frame test support (plan §7.2, Milestone C). Pure C++ core —
-// no Godot types: the awaitables only *describe* what a suspended test is
-// waiting for. The engine-boundary pump in runner.cpp interprets that request
-// against the live SceneTree's `process_frame` signal; the self-test
-// SubAsyncPump simulates frames with a fake clock.
+
 #pragma once
 
 #include <coroutine>
