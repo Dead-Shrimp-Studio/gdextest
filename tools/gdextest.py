@@ -350,34 +350,43 @@ def _print_check(label: str, value: str, ok: bool) -> bool:
 def _write_junit(results: list[dict], path: str) -> None:
     """Serialize gdextest results (the JSON `results` array) as JUnit XML.
 
-    GitHub Actions and other CI surfaces render JUnit natively, so the same
-    pass/fail/skipped/crashed data becomes inline annotations.
+    Groups cases into one <testsuite> per test suite in first-appearance
+    (execution) order — never alphabetized, matching the console report —
+    with each suite and the root <testsuites> carrying their own counts and
+    duration in seconds. GitHub Actions and other CI surfaces render JUnit
+    natively, so pass/fail/skipped/crashed data becomes inline annotations.
     """
-    tests = len(results)
-    failures = sum(1 for result in results if result.get("status") in ("fail", "crashed"))
-    skipped = sum(1 for result in results if result.get("status") == "skipped")
-    suites = ET.Element("testsuites", {"tests": str(tests),
-                                        "failures": str(failures),
-                                        "skipped": str(skipped)})
-    suite = ET.SubElement(suites, "testsuite", {"name": "gdextest",
-                                                 "tests": str(tests),
-                                                 "failures": str(failures),
-                                                 "skipped": str(skipped)})
+    def _totals(rows: list[dict]) -> dict:
+        return {"tests": str(len(rows)),
+                "failures": str(sum(1 for row in rows
+                                    if row.get("status") in ("fail", "crashed"))),
+                "skipped": str(sum(1 for row in rows
+                                   if row.get("status") == "skipped")),
+                "time": f"{sum(int(row.get('duration_ms', 0)) for row in rows) / 1000.0:.3f}"}
+
+    grouped: dict[str, list[dict]] = {}
     for result in results:
-        case = ET.SubElement(suite, "testcase", {
-            "classname": result.get("suite", ""),
-            "name": result.get("name", ""),
-            "time": f"{result.get('duration_ms', 0) / 1000.0:.3f}",
-        })
-        if result.get("status") in ("fail", "crashed"):
-            message = "; ".join(
-                f"{failure.get('file', '')}:{failure.get('line', 0)} "
-                f"{failure.get('message', '')}"
-                for failure in result.get("failures", [])) or "test failed"
-            ET.SubElement(case, "failure", {"message": message}).text = message
-        elif result.get("status") == "skipped":
-            ET.SubElement(case, "skipped",
-                          {"message": result.get("reason", "")}).text = result.get("reason", "")
+        grouped.setdefault(result.get("suite", ""), []).append(result)
+
+    suites = ET.Element("testsuites", _totals(results))
+    for suite_name, suite_results in grouped.items():
+        suite = ET.SubElement(suites, "testsuite",
+                              {"name": suite_name, **_totals(suite_results)})
+        for result in suite_results:
+            case = ET.SubElement(suite, "testcase", {
+                "classname": suite_name,
+                "name": result.get("name", ""),
+                "time": f"{result.get('duration_ms', 0) / 1000.0:.3f}",
+            })
+            if result.get("status") in ("fail", "crashed"):
+                message = "; ".join(
+                    f"{failure.get('file', '')}:{failure.get('line', 0)} "
+                    f"{failure.get('message', '')}"
+                    for failure in result.get("failures", [])) or "test failed"
+                ET.SubElement(case, "failure", {"message": message}).text = message
+            elif result.get("status") == "skipped":
+                ET.SubElement(case, "skipped",
+                              {"message": result.get("reason", "")}).text = result.get("reason", "")
     ET.ElementTree(suites).write(path, encoding="utf-8", xml_declaration=True)
 
 

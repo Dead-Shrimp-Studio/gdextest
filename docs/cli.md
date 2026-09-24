@@ -191,6 +191,8 @@ Field notes:
 
 `--junit=<path>` (CLI-level, on `test` and `report`) converts the run's JSON into JUnit XML. GitHub Actions and other CI surfaces render JUnit natively, so failures and skips become inline annotations. Skipped tests produce `<skipped>` elements with their reason.
 
+Cases are grouped into one `<testsuite>` per test suite in first-appearance (execution) order, matching the console report. The root `<testsuites>` and each `<testsuite>` carry `tests`, `failures`, `skipped`, and `time` (total duration in seconds), so suite-level consumers such as `dorny/test-reporter` render real durations instead of `NaNms`.
+
 ## Parallel CI: sharding and report
 
 Run one job per shard, each writing its own JSON document:

@@ -8,6 +8,7 @@ import io
 import json
 import os
 import sys
+import xml.etree.ElementTree as ET
 import tempfile
 
 
@@ -834,7 +835,23 @@ def test_json_to_junit_conversion() -> None:
         assert 'tests="3"' in xml_text
         assert 'failures="1"' in xml_text
         assert 'skipped="1"' in xml_text
+        assert 'time="0.003"' in xml_text
         assert 'classname="a"' in xml_text
+        # One <testsuite> per test suite, in first-appearance order, each with
+        # its own counts and aggregate duration in seconds (dorny/test-reporter
+        # reads suite-level `time`; a missing attribute renders as NaNms).
+        root = ET.fromstring(xml_text)
+        assert root.tag == "testsuites"
+        assert root.get("tests") == "3" and root.get("time") == "0.003"
+        suites = root.findall("testsuite")
+        assert [suite.get("name") for suite in suites] == ["a", "b"]
+        suite_a, suite_b = suites
+        assert suite_a.get("tests") == "2" and suite_a.get("failures") == "1"
+        assert suite_a.get("skipped") == "0" and suite_a.get("time") == "0.003"
+        assert [case.get("name") for case in suite_a.findall("testcase")] == ["passes", "fails"]
+        assert suite_b.get("tests") == "1" and suite_b.get("failures") == "0"
+        assert suite_b.get("skipped") == "1" and suite_b.get("time") == "0.000"
+        assert suite_b.find("testcase").get("classname") == "b"
         assert 'name="fails"' in xml_text
         assert "expected a == b" in xml_text
         assert 'message="no service"' in xml_text
@@ -872,6 +889,16 @@ def test_report_merges_shard_documents() -> None:
         assert merged["totals"] == {"pass": 2, "fail": 2, "skip": 1, "crashed": 1}
         assert len(merged["results"]) == 5
         assert (root / "merged.xml").is_file()
+        # The merged JUnit report regroups all shards back into per-suite
+        # elements with recomputed totals and durations.
+        root_element = ET.fromstring((root / "merged.xml").read_text(encoding="utf-8"))
+        assert root_element.get("tests") == "5" and root_element.get("time") == "0.007"
+        merged_suites = root_element.findall("testsuite")
+        assert [suite.get("name") for suite in merged_suites] == ["s"]
+        merged_suite = merged_suites[0]
+        assert merged_suite.get("tests") == "5" and merged_suite.get("failures") == "2"
+        assert merged_suite.get("skipped") == "1" and merged_suite.get("time") == "0.007"
+        assert len(merged_suite.findall("testcase")) == 5
 
 
 def test_godot_discovery_finds_nearby_binary() -> None:
