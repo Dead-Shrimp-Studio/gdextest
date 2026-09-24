@@ -25,6 +25,7 @@ def load(name: str, path: Path):
 config_module = load("gdextest_config", ROOT / "tools" / "gdextest_config.py")
 generator = load("generate_fixture", ROOT / "tools" / "generate_fixture.py")
 cli = load("gdextest_cli", ROOT / "tools" / "gdextest.py")
+compiler_module = load("gdextest_compiler", ROOT / "tools" / "gdextest_compiler.py")
 
 
 def _stub_cmd_test_deps(module) -> dict:
@@ -857,6 +858,50 @@ def test_json_to_junit_conversion() -> None:
         assert 'message="no service"' in xml_text
 
 
+def test_is_msvc_compiler_detection() -> None:
+    """The SConscript's MSVC branch triggers only for the MSVC front end.
+
+    clang must never match a "cl" prefix, and PLATFORM=win32 alone must not
+    force MSVC flags onto MinGW or GNU-front-end clang.
+    """
+    msvc_cases = [
+        {"CC": "cl"},
+        {"CC": "CL.EXE"},
+        {"CC": "C:/Program Files/Microsoft Visual Studio/VC/cl.exe"},
+        {"CC": "clang-cl"},
+        {"CC": "clang-cl.exe"},
+        # No explicit compiler: trust godot-cpp's flag or the SCons tool set.
+        {"CC": "", "is_msvc": True},
+        {"CC": "gcc", "is_msvc": True},
+        {"CC": "", "TOOLS": ["default", "msvc"]},
+    ]
+    for env in msvc_cases:
+        assert compiler_module.is_msvc(env), f"expected MSVC for {env}"
+    gcc_cases = [
+        {"CC": "gcc"},
+        {"CC": "g++"},
+        {"CC": "clang"},
+        {"CC": "clang++"},
+        {"CC": "clang.exe"},
+        {"CC": "/usr/bin/clang++"},
+        {"CC": "ccache clang"},
+        {"CC": "ccache gcc", "PLATFORM": "win32"},
+        {"CC": "clang", "PLATFORM": "win32"},
+        {"CC": "gcc", "TOOLS": ["default", "mingw"]},
+        {"CC": "i686-w64-mingw32-gcc", "PLATFORM": "win32"},
+        {"CC": ""},
+    ]
+    for env in gcc_cases:
+        assert not compiler_module.is_msvc(env), f"expected non-MSVC for {env}"
+
+
+def test_sconscript_selects_flags_by_compiler_family() -> None:
+    """MSVC-only flags go to MSVC; GCC/Clang flags go to clang and MinGW."""
+    scons_script = (ROOT / "SConscript").read_text(encoding="utf-8")
+    assert "_compiler_module.is_msvc(test_env)" in scons_script
+    assert 'test_env.get("PLATFORM") == "win32"' not in scons_script
+
+
 def test_report_merges_shard_documents() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -1482,6 +1527,8 @@ if __name__ == "__main__":
     test_cmd_test_passes_through_gdextest_args()
     test_timeout_budgets_forwarded_from_toml()
     test_json_to_junit_conversion()
+    test_is_msvc_compiler_detection()
+    test_sconscript_selects_flags_by_compiler_family()
     test_report_merges_shard_documents()
     test_godot_discovery_finds_nearby_binary()
     test_doctor_godot_cpp_version_checks()

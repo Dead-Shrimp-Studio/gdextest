@@ -48,6 +48,10 @@ _config_spec = importlib.util.spec_from_file_location(
 _config_module = importlib.util.module_from_spec(_config_spec)
 sys.modules[_config_spec.name] = _config_module
 _config_spec.loader.exec_module(_config_module)
+_compiler_spec = importlib.util.spec_from_file_location(
+    "gdextest_compiler", framework_root.File("tools/gdextest_compiler.py").abspath)
+_compiler_module = importlib.util.module_from_spec(_compiler_spec)
+_compiler_spec.loader.exec_module(_compiler_module)
 
 
 def _load_toml_config():
@@ -181,8 +185,11 @@ for _var in ("CPPPATH", "LIBPATH"):
 # vendored godot-cpp header warnings into every consumer build.
 godot_cpp_includes = [include for include in test_env.get("CPPPATH", [])
                       if "godot-cpp" in str(include)]
-_is_msvc = (test_env.get("PLATFORM") == "win32" or
-            os.path.basename(str(test_env.get("CC", ""))).lower().startswith("cl"))
+# MSVC front end only (cl, clang-cl, godot-cpp's is_msvc flag, or the msvc
+# tool): never inferred from PLATFORM alone, and the plain "cl" prefix does
+# not match clang — both would feed MSVC-only flags to GCC/Clang (MinGW on
+# win32, macOS, Android NDK).
+_is_msvc = _compiler_module.is_msvc(test_env)
 if _is_msvc:
     for include in godot_cpp_includes:
         test_env.Append(CCFLAGS=["/external:I", str(include)])
